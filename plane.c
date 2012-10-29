@@ -641,7 +641,7 @@ static bool my_surface_alloc(struct my_surface *s,
 	EGLConfig config;
 
 	if (surface_alloc(&s->base, fd, gbm, fmt, w, h))
-		return 12;
+		return false;
 
 	if (!eglChooseConfig(dpy, attribs, &config, 1, &num_configs) || num_configs != 1) {
 		memset(s, 0, sizeof *s);
