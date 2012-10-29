@@ -119,6 +119,8 @@ struct my_crtc {
 		uint32_t mode;
 		uint32_t connector_ids;
 	} prop;
+
+	uint32_t connector_ids[8];
 };
 
 struct my_plane {
@@ -367,6 +369,14 @@ static void plane_commit(int fd, struct my_plane *p)
 					  c->prop.mode,
 					  sizeof(c->mode),
 					  &c->mode);
+
+		c->connector_ids[0] = c->base.connector_id;
+		drmModePropertySetAddBlob(set,
+					  c->base.crtc_id,
+					  c->prop.connector_ids,
+					  4,
+					  c->connector_ids);
+
 		/* don't try nonblocking modeset, the kernel will reject it. */
 		flags &= ~DRM_MODE_ATOMIC_NONBLOCK;
 	}
@@ -458,8 +468,11 @@ static void plane_commit(int fd, struct my_plane *p)
 		if (c->dirty)
 			printf("crtc = %u, fb = %u\n", c->base.crtc_id, cbuf ? cbuf->fb_id : -1);
 
-		if (c->dirty_mode)
+		if (c->dirty_mode) {
 			print_mode(&c->mode);
+
+			printf("connector_id = %u\n", c->connector_ids[0]);
+		}
 
 		if (pbuf) {
 			surface_buffer_put_fb(fd, &p->surf.base, pbuf);
