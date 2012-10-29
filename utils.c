@@ -414,15 +414,12 @@ bool init_ctx(struct ctx *ctx, int fd)
 	drmModePlaneResPtr plane_res;
 
 	res = drmModeGetResources(fd);
-	if (!res) {
-		close(fd);
+	if (!res)
 		return false;
-	}
 
 	plane_res = drmModeGetPlaneResources(fd);
         if (!plane_res) {
 		drmModeFreeResources(res);
-		close(fd);
 		return false;
 	}
 
@@ -456,5 +453,5 @@ void init_plane(struct plane *p, struct crtc *c, struct ctx *ctx)
 {
 	memset(p, 0, sizeof *p);
 	p->crtc = c;
-	c->ctx = ctx;
+	p->ctx = ctx;
 }
