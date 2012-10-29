@@ -909,8 +909,10 @@ int main(int argc, char *argv[])
 		return 3;
 
 	for (i = 0; i < argc - 1; i++) {
-		c[count_crtcs] = c[0];
-		p[count_crtcs] = p[0];
+		if (count_crtcs) {
+			c[count_crtcs] = c[0];
+			p[count_crtcs] = p[0];
+		}
 
 		init_crtc(&c[count_crtcs].base, &uctx);
 		init_plane(&p[count_crtcs].base, &c[count_crtcs].base, &uctx);
