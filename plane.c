@@ -355,20 +355,22 @@ static void plane_commit(int fd, struct my_plane *p)
 	}
 
 	if (p->dirty) {
-		pbuf = surface_get_front(fd, &p->surf.base);
-		if (!pbuf) {
-			if (cbuf) {
-				surface_buffer_put_fb(fd, &c->surf.base, cbuf);
-				c->surf.pending_events--;
+		if (p->enable) {
+			pbuf = surface_get_front(fd, &p->surf.base);
+			if (!pbuf) {
+				if (cbuf) {
+					surface_buffer_put_fb(fd, &c->surf.base, cbuf);
+					c->surf.pending_events--;
+				}
+				drmModePropertySetFree(set);
+				return;
 			}
-			drmModePropertySetFree(set);
-			return;
 		}
 
 		drmModePropertySetAdd(set,
 				      p->base.plane_id,
 				      p->prop.fb,
-				      pbuf->fb_id);
+				      pbuf ? pbuf->fb_id : 0);
 
 		drmModePropertySetAdd(set,
 				      p->base.plane_id,
@@ -414,7 +416,8 @@ static void plane_commit(int fd, struct my_plane *p)
 				      p->base.plane_id,
 				      p->prop.crtc_h,
 				      p->dst.y2 - p->dst.y1);
-		p->surf.pending_events++;
+		if (pbuf)
+			p->surf.pending_events++;
 	}
 
 	//r = drmModePropertySetCommit(fd, DRM_MODE_ATOMIC_TEST_ONLY, set);
