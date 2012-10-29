@@ -14,9 +14,6 @@ struct buffer {
 	uint32_t offset[4];
 	uint32_t stride[4];
 	uint32_t handle[4];
-	unsigned int width;
-	unsigned int height;
-	uint32_t fmt;
 	uint32_t fb_id;
 	int ref;
 	struct gbm_bo *bo;
