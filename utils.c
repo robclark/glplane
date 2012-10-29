@@ -90,7 +90,7 @@ bool pick_connector(struct crtc *c, const char *name)
 		if (type >= ARRAY_SIZE(connector_type_str))
 			type = 0;
 
-		snprintf(connector_name, sizeof connector_name, "%s-%d\n",
+		snprintf(connector_name, sizeof connector_name, "%s-%d",
 			 connector_type_str[type],
 			 connector->connector_type_id);
 
