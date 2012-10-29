@@ -963,6 +963,7 @@ int main(int argc, char *argv[])
 	for (i = 0; i < count_crtcs; i++) {
 		populate_crtc_props(fd, &c[i]);
 		populate_plane_props(fd, &p[i]);
+		plane_enable(&p[i], enable);
 		handle_crtc(fd, gbm, dpy, ctx, argv[1], &c[i], &p[i]);
 	}
 
