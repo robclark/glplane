@@ -199,7 +199,7 @@ static void populate_crtc_props(int fd, struct my_crtc *c)
 		if (!prop)
 			continue;
 
-		printf("prop %s\n", prop->name);
+		printf("crtc prop %s\n", prop->name);
 
 		if (!strcmp(prop->name, "SRC_X"))
 			c->prop.src_x = prop->prop_id;
@@ -233,6 +233,8 @@ static void populate_plane_props(int fd, struct my_plane *p)
 		prop = drmModeGetProperty(fd, props->props[i]);
 		if (!prop)
 			continue;
+
+		printf("plane prop %s\n", prop->name);
 
 		if (!strcmp(prop->name, "SRC_X"))
 			p->prop.src_x = prop->prop_id;
