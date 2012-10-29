@@ -41,6 +41,37 @@ static const char *encoder_type_str[] = {
 	[DRM_MODE_ENCODER_TVDAC] = "TVDAC",
 };
 
+void print_mode(const char *title, const drmModeModeInfo *mode)
+{
+	printf("%s [\n"
+	       "\tname = %s\n"
+	       "\tvrefresh = %u\n"
+	       "\tclock = %u\n"
+	       "\thdisplay = %u\n"
+	       "\thsync_start = %u\n"
+	       "\thsync_end = %u\n"
+	       "\thtotal = %u\n"
+	       "\tvdisplay = %u\n"
+	       "\tvsync_start = %u\n"
+	       "\tvsync_end = %u\n"
+	       "\tvtotal = %u\n"
+	       "\tflags = %x\n"
+	       "]\n",
+	       title,
+	       mode->name,
+	       mode->vrefresh,
+	       mode->clock,
+	       mode->hdisplay,
+	       mode->hsync_start,
+	       mode->hsync_end,
+	       mode->htotal,
+	       mode->vdisplay,
+	       mode->vsync_start,
+	       mode->vsync_end,
+	       mode->vtotal,
+	       mode->flags);
+}
+
 static int get_encoder_idx(drmModeResPtr res, drmModeEncoderPtr encoder)
 {
 	int i;
@@ -501,4 +532,38 @@ void init_plane(struct plane *p, struct crtc *c, struct ctx *ctx)
 	memset(p, 0, sizeof *p);
 	p->crtc = c;
 	p->ctx = ctx;
+}
+
+bool pick_mode(struct crtc *c, drmModeModeInfoPtr mode, const char *name)
+{
+	int fd = c->ctx->fd;
+	drmModeResPtr res = c->ctx->res;
+	drmModeConnectorPtr connector;
+	int i;
+	bool found = false;
+
+	if (!c->connector_id)
+		return false;
+
+	connector = drmModeGetConnector(fd, c->connector_id);
+	if (!connector)
+		return false;
+
+	for (i = 0; i < connector->count_modes; i++) {
+		drmModeModeInfoPtr mode;
+
+		if (strcmp(connector->modes[i].name, name))
+			continue;
+
+		*mode = connector->modes[i];
+		found = true;
+
+		print_mode("picked mode", mode);
+
+		break;
+	}
+
+	drmModeFreeConnector(connector);
+
+	return found;
 }

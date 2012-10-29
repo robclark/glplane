@@ -58,4 +58,7 @@ void release_encoder(struct crtc *c);
 void release_crtc(struct crtc *c);
 void release_plane(struct plane *p);
 
+void print_mode(const char *title, const drmModeModeInfo *mode);
+bool pick_mode(struct crtc *c, drmModeModeInfoPtr mode, const char *name);
+
 #endif

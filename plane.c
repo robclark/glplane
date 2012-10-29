@@ -296,35 +296,6 @@ static void atomic_event(int fd, unsigned int seq, unsigned int tv_sec, unsigned
 		printf("EVENT w/o old_fb_id\n");
 }
 
-static void print_mode(const drmModeModeInfo *mode)
-{
-	printf("[\n"
-	       "\tname = %s\n"
-	       "\tvrefresh = %u\n"
-	       "\tclock = %u\n"
-	       "\thdisplay = %u\n"
-	       "\thsync_start = %u\n"
-	       "\thsync_end = %u\n"
-	       "\thtotal = %u\n"
-	       "\tvdisplay = %u\n"
-	       "\tvsync_start = %u\n"
-	       "\tvsync_end = %u\n"
-	       "\tvtotal = %u\n"
-	       "\tflgags = %x\n"
-	       "]\n",
-	       mode->name,
-	       mode->vrefresh,
-	       mode->clock,
-	       mode->hdisplay,
-	       mode->hsync_start,
-	       mode->hsync_end,
-	       mode->htotal,
-	       mode->vdisplay,
-	       mode->vsync_start,
-	       mode->vsync_end,
-	       mode->vtotal,
-	       mode->flags);
-}
 
 static void plane_commit(int fd, struct my_plane *p)
 {
@@ -477,7 +448,7 @@ static void plane_commit(int fd, struct my_plane *p)
 			printf("crtc = %u, fb = %u\n", c->base.crtc_id, cbuf ? cbuf->fb_id : -1);
 
 		if (c->dirty_mode) {
-			print_mode(&c->mode);
+			print_mode("mode", &c->mode);
 
 			printf("connector_id = %u\n", c->connector_ids[0]);
 		}
@@ -692,9 +663,15 @@ static void handle_crtc(int fd,
 			struct gbm_device *gbm,
 			EGLDisplay dpy,
 			EGLContext ctx,
+			const char *mode_name,
 			struct my_crtc *c, struct my_plane *p)
 {
-	if (1) {
+	if (!pick_mode(&c->base, &c->mode, mode_name))
+		return;
+
+	c->dirty_mode = true;
+
+	if (0) {
 #if 0
 		snprintf(c->mode.name, sizeof c->mode.name, "1920x1080");
 		c->mode.vrefresh = 60;
@@ -779,6 +756,8 @@ static void handle_crtc(int fd,
 		c->mode.vtotal = 1125;
 		c->mode.flags = 0x15;
 #endif
+		if (!pick_mode(&c->base, &c->mode, mode_name))
+			return;
 
 		c->dirty_mode = true;
 	}
@@ -924,7 +903,7 @@ int main(int argc, char *argv[])
 	EGLConfig config;
 	int count_crtcs = 0;
 
-	if (argc < 2)
+	if (argc < 3)
 		return 1;
 
 	fd = drmOpen("i915", NULL);
@@ -934,7 +913,7 @@ int main(int argc, char *argv[])
 	if (!init_ctx(&uctx, fd))
 		return 3;
 
-	for (i = 0; i < argc - 1; i++) {
+	for (i = 0; i < argc - 2; i++) {
 		if (count_crtcs) {
 			c[count_crtcs] = c[0];
 			p[count_crtcs] = p[0];
@@ -943,7 +922,7 @@ int main(int argc, char *argv[])
 		init_crtc(&c[count_crtcs].base, &uctx);
 		init_plane(&p[count_crtcs].base, &c[count_crtcs].base, &uctx);
 
-		if (pick_connector(&c[count_crtcs].base, argv[i + 1]) &&
+		if (pick_connector(&c[count_crtcs].base, argv[i + 2]) &&
 		    pick_encoder(&c[count_crtcs].base) &&
 		    pick_crtc(&c[count_crtcs].base) &&
 		    pick_plane(&p[count_crtcs].base)) {
@@ -980,7 +959,7 @@ int main(int argc, char *argv[])
 	for (i = 0; i < count_crtcs; i++) {
 		populate_crtc_props(fd, &c[i]);
 		populate_plane_props(fd, &p[i]);
-		handle_crtc(fd, gbm, dpy, ctx, &c[i], &p[i]);
+		handle_crtc(fd, gbm, dpy, ctx, argv[1], &c[i], &p[i]);
 	}
 
 	term_init();
