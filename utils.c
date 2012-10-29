@@ -7,6 +7,8 @@
 
 #include "utils.h"
 
+#define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
+
 static uint32_t planes_used;
 static uint32_t crtcs_used;
 static uint32_t encoders_used;
@@ -29,6 +31,14 @@ static const char *connector_type_str[] = {
 	[DRM_MODE_CONNECTOR_TV]          = "TV",
 	[DRM_MODE_CONNECTOR_eDP]         = "eDP",
 //	[DRM_MODE_CONNECTOR_VIRTUAL]     = "Virtual",
+};
+
+static const char *encoder_type_str[] = {
+	[DRM_MODE_ENCODER_NONE]  = "None",
+	[DRM_MODE_ENCODER_DAC]   = "DAC",
+	[DRM_MODE_ENCODER_TMDS]  = "TMDS",
+	[DRM_MODE_ENCODER_LVDS]  = "LVDS",
+	[DRM_MODE_ENCODER_TVDAC] = "TVDAC",
 };
 
 static int get_encoder_idx(drmModeResPtr res, drmModeEncoderPtr encoder)
@@ -67,6 +77,7 @@ void pick_connector(struct crtc *c, const char *name)
 	for (i = 0; i < res->count_connectors; i++) {
 		drmModeConnectorPtr connector;
 		char connector_name[32];
+		unsigned int type;
 
 		if (connectors_used & (1 << i))
 			continue;
@@ -75,8 +86,12 @@ void pick_connector(struct crtc *c, const char *name)
 		if (!connector)
 			continue;
 
+		type = connector->connector_type;
+		if (type >= ARRAY_SIZE(connector_type_str))
+			type = 0;
+
 		snprintf(connector_name, sizeof connector_name, "%s-%d\n",
-			 connector_type_str[connector->connector_type],
+			 connector_type_str[type],
 			 connector->connector_type_id);
 
 		if (!strcmp(name, connector_name)) {
@@ -111,6 +126,7 @@ static bool reuse_old_encoder(int fd, drmModeResPtr res, struct crtc *c)
 	drmModeConnectorPtr connector;
 	drmModeEncoderPtr encoder;
 	int encoder_idx;
+	unsigned int type;
 
 	connector = drmModeGetConnector(fd, c->connector_id);
 	if (!connector)
@@ -141,6 +157,13 @@ static bool reuse_old_encoder(int fd, drmModeResPtr res, struct crtc *c)
 		return false;
 	}
 
+	type = encoder->encoder_type;
+	if (type >= ARRAY_SIZE(encoder_type_str))
+		type = 0;
+
+	printf("picked encoder [%u] id = %u, type = \"%s\"\n",
+	       encoder_idx, encoder->encoder_id, encoder_type_str[type]);
+
 	c->encoder_id = encoder->encoder_id;
 	c->encoder_idx = encoder_idx;
 	encoders_used = 1 << encoder_idx;
@@ -170,6 +193,7 @@ void pick_encoder(struct crtc *c)
 	for (i = 0; i < connector->count_encoders; i++) {
 		drmModeEncoderPtr encoder;
 		int encoder_idx;
+		unsigned int type;
 
 		encoder = drmModeGetEncoder(fd, connector->encoders[i]);
 		if (!encoder)
@@ -186,6 +210,13 @@ void pick_encoder(struct crtc *c)
 			drmModeFreeEncoder(encoder);
 			continue;
 		}
+
+		type = encoder->encoder_type;
+		if (type >= ARRAY_SIZE(encoder_type_str))
+			type = 0;
+
+		printf("picked encoder [%u] id = %u, type = \"%s\"\n",
+		       encoder_idx, encoder->encoder_id, encoder_type_str[type]);
 
 		c->encoder_id = encoder->encoder_id;
 		c->encoder_idx = encoder_idx;
@@ -228,6 +259,8 @@ static bool reuse_old_crtc(int fd, drmModeResPtr res, struct crtc *c)
 		drmModeFreeCrtc(crtc);
 		return false;
 	}
+
+	printf("picked crtc [%u] id = %u\n", crtc_idx, crtc->crtc_id);
 
 	c->crtc_id = crtc->crtc_id;
 	c->crtc_idx = crtc_idx;
@@ -272,6 +305,8 @@ void pick_crtc(struct crtc *c)
 			continue;
 		}
 
+		printf("picked crtc [%u] id = %u\n", i, crtc->crtc_id);
+
 		c->crtc_id = crtc->crtc_id;
 		c->crtc_idx = i;
 		crtcs_used |= 1 << i;
@@ -304,6 +339,8 @@ static bool reuse_old_plane(int fd, drmModePlaneResPtr plane_res, struct plane *
 			drmModeFreePlane(plane);
 			continue;
 		}
+
+		printf("picked plane [%u] id = %u\n", i, plane->plane_id);
 
 		p->plane_id = plane->plane_id;
 		p->plane_idx = i;
@@ -355,6 +392,8 @@ void pick_plane(struct plane *p)
 			drmModeFreePlane(plane);
 			continue;
 		}
+
+		printf("picked plane [%u] id = %u\n", i, plane->plane_id);
 
 		p->plane_id = plane->plane_id;
 		p->plane_idx = i;
