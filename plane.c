@@ -708,6 +708,9 @@ int main(int argc, char *argv[])
 	EGLint num_configs = 0;
 	EGLConfig config;
 
+	if (argc < 2)
+		return 1;
+
 	fd = drmOpen("i915", NULL);
 	if (fd < 0)
 		return 1;
@@ -731,7 +734,6 @@ int main(int argc, char *argv[])
 	ctx = eglCreateContext(dpy, config, EGL_NO_CONTEXT, NULL);
 	if (!ctx)
 		return 2;
-
 
 	if (!init_ctx(&uctx, fd))
 		return 1;
