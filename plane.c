@@ -332,7 +332,7 @@ static void plane_commit(int fd, struct my_plane *p)
 	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
 	int r;
 	uint32_t flags = DRM_MODE_ATOMIC_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
-	struct buffer *cbuf, *pbuf;
+	struct buffer *cbuf = NULL, *pbuf = NULL;
 
 	if (!p->dirty && !c->dirty && !c->dirty_mode)
 		return;
@@ -343,8 +343,10 @@ static void plane_commit(int fd, struct my_plane *p)
 
 	if (c->dirty) {
 		cbuf = surface_get_front(fd, &c->surf.base);
-		if (!cbuf)
+		if (!cbuf) {
+			drmModePropertySetFree(set);
 			return;
+		}
 
 		drmModePropertySetAdd(set,
 				      c->base.crtc_id,
@@ -383,8 +385,14 @@ static void plane_commit(int fd, struct my_plane *p)
 
 	if (p->dirty) {
 		pbuf = surface_get_front(fd, &p->surf.base);
-		if (!pbuf)
+		if (!pbuf) {
+			if (cbuf) {
+				surface_buffer_put_fb(fd, &c->surf.base, cbuf);
+				c->surf.pending_events--;
+			}
+			drmModePropertySetFree(set);
 			return;
+		}
 
 		drmModePropertySetAdd(set,
 				      p->base.plane_id,
