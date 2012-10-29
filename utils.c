@@ -95,7 +95,7 @@ bool pick_connector(struct crtc *c, const char *name)
 			 connector->connector_type_id);
 
 		if (!strcmp(name, connector_name)) {
-			printf("picked connector [%u] = id = %u, name = \"%s\"\n",
+			printf("picked connector [%u] id = %u, name = \"%s\"\n",
 			       i, connector->connector_id, connector_name);
 			c->connector_id = connector->connector_id;
 			c->connector_idx = i;
