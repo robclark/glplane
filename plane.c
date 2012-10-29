@@ -798,7 +798,7 @@ static void handle_crtc(int fd,
 	plane_commit(fd, p);
 }
 
-static void animate_crtc(int fd,
+static bool animate_crtc(int fd,
 			 EGLDisplay dpy,
 			 EGLContext ctx,
 			 struct my_crtc *c, struct my_plane *p)
@@ -806,7 +806,7 @@ static void animate_crtc(int fd,
 	int i;
 
 	if (get_free_buffer(&c->surf) < 0 || get_free_buffer(&p->surf) < 0)
-		return;
+		return true;
 
 	float rad = adjust_radius(p);
 	float ang = adjust_angle(p);
@@ -862,6 +862,8 @@ static void animate_crtc(int fd,
 		c->prev = cur;
 		c->frames = 0;
 	}
+
+	return false;
 }
 
 int main(int argc, char *argv[])
@@ -974,11 +976,13 @@ int main(int argc, char *argv[])
 	bool test_running = false;
 	struct timespec prev;
 
+	struct timeval timeout;
+	struct timeval *t = NULL;
+
 	while (!quit) {
 		char cmd;
 		fd_set fds;
 		int maxfd;
-		struct timeval timeout = { 0, 10 };
 
 		FD_ZERO(&fds);
 
@@ -988,7 +992,12 @@ int main(int argc, char *argv[])
 		maxfd = max(maxfd, fd);
 		FD_SET(fd, &fds);
 
-		r = select(maxfd + 1, &fds, NULL, NULL, &timeout);
+		if (t) {
+			t->tv_sec = 0;
+			t->tv_usec = 0;
+		}
+
+		r = select(maxfd + 1, &fds, NULL, NULL, t);
 
 		if (r < 0 && errno == EINTR)
 			continue;
@@ -997,8 +1006,15 @@ int main(int argc, char *argv[])
 			drmHandleEvent(fd, &evtctx);
 
 		if (!FD_ISSET(STDIN_FILENO, &fds) && test_running) {
+			bool sleep = false;
+
 			for (i = 0; i < count_crtcs; i++)
-				animate_crtc(fd, dpy, ctx, &c[i], &p[i]);
+				sleep |= animate_crtc(fd, dpy, ctx, &c[i], &p[i]);
+
+			if (sleep)
+				t = NULL;
+			else
+				t = &timeout;
 		}
 
 		if (!FD_ISSET(STDIN_FILENO, &fds))
@@ -1066,6 +1082,7 @@ int main(int argc, char *argv[])
 			break;
 		case 't':
 			test_running = !test_running;
+			t = &timeout;
 			if (test_running) {
 				clock_gettime(CLOCK_MONOTONIC, &prev);
 				for (i = 0; i < count_crtcs; i++) {
