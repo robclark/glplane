@@ -715,6 +715,20 @@ int main(int argc, char *argv[])
 	if (fd < 0)
 		return 2;
 
+	if (!init_ctx(&uctx, fd))
+		return 8;
+
+	init_crtc(&c.base, &uctx);
+	init_plane(&p.base, &c.base, &uctx);
+
+	pick_connector(&c.base, argv[1]);
+	pick_encoder(&c.base);
+	pick_crtc(&c.base);
+	pick_plane(&p.base);
+
+	populate_crtc_props(fd, &c);
+	populate_plane_props(fd, &p);
+
 	gbm = gbm_create_device(fd);
 	if (!gbm)
 		return 3;
@@ -734,20 +748,6 @@ int main(int argc, char *argv[])
 	ctx = eglCreateContext(dpy, config, EGL_NO_CONTEXT, NULL);
 	if (!ctx)
 		return 7;
-
-	if (!init_ctx(&uctx, fd))
-		return 8;
-
-	init_crtc(&c.base, &uctx);
-	init_plane(&p.base, &c.base, &uctx);
-
-	pick_connector(&c.base, argv[1]);
-	pick_encoder(&c.base);
-	pick_crtc(&c.base);
-	pick_plane(&p.base);
-
-	populate_crtc_props(fd, &c);
-	populate_plane_props(fd, &p);
 
 	if (1) {
 #if 0
