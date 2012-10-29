@@ -109,6 +109,9 @@ struct my_crtc {
 	drmModeModeInfo original_mode;
 	drmModeModeInfo mode;
 
+	unsigned int frames;
+	struct timespec prev;
+
 	struct {
 		uint32_t src_x;
 		uint32_t src_y;
@@ -659,34 +662,218 @@ static bool my_surface_alloc(struct my_surface *s,
 	return true;
 }
 
+static void handle_crtc(int fd,
+			struct gbm_device *gbm,
+			EGLDisplay dpy,
+			EGLContext ctx,
+			struct my_crtc *c, struct my_plane *p)
+{
+	if (1) {
+#if 0
+		snprintf(c->mode.name, sizeof c->mode.name, "1920x1080");
+		c->mode.vrefresh = 60;
+		c->mode.clock = 148500;
+		c->mode.hdisplay = 1920;
+		c->mode.hsync_start = 2008;
+		c->mode.hsync_end = 2052;
+		c->mode.htotal = 2200;
+		c->mode.vdisplay = 1080;
+		c->mode.vsync_start = 1084;
+		c->mode.vsync_end = 1089;
+		c->mode.vtotal = 1125;
+		c->mode.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
+#endif
+#if 0
+		snprintf(c->mode.name, sizeof c->mode.name, "1024x768");
+		c->mode.vrefresh = 60;
+		c->mode.clock = 65000;
+		c->mode.hdisplay = 1024;
+		c->mode.hsync_start = 1048;
+		c->mode.hsync_end = 1184;
+		c->mode.htotal = 1344;
+		c->mode.vdisplay = 768;
+		c->mode.vsync_start = 771;
+		c->mode.vsync_end = 777;
+		c->mode.vtotal = 806;
+		c->mode.flags = 0xa;
+#endif
+#if 0
+		snprintf(c->mode.name, sizeof c->mode.name, "1280x720");
+		c->mode.vrefresh = 60;
+		c->mode.clock = 74250;
+		c->mode.hdisplay = 1280;
+		c->mode.hsync_start = 1390;
+		c->mode.hsync_end = 1430;
+		c->mode.htotal = 1650;
+		c->mode.vdisplay = 720;
+		c->mode.vsync_start = 725;
+		c->mode.vsync_end = 730;
+		c->mode.vtotal = 750;
+		c->mode.flags = DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC;
+#endif
+#if 0
+		snprintf(c->mode.name, sizeof c->mode.name, "1366x768");
+		c->mode.vrefresh = 60;
+		c->mode.clock = 85885;
+		c->mode.hdisplay = 1366;
+		c->mode.hsync_start = 1439;
+		c->mode.hsync_end = 1583;
+		c->mode.htotal = 1800;
+		c->mode.vdisplay = 768;
+		c->mode.vsync_start = 769;
+		c->mode.vsync_end = 772;
+		c->mode.vtotal = 795;
+		c->mode.flags = 6;
+#endif
+#if 0
+		snprintf(c->mode.name, sizeof c->mode.name, "720x576");
+		c->mode.vrefresh = 50;
+		c->mode.clock = 27000;
+		c->mode.hdisplay = 720;
+		c->mode.hsync_start = 732;
+		c->mode.hsync_end = 796;
+		c->mode.htotal = 864;
+		c->mode.vdisplay = 576;
+		c->mode.vsync_start = 581;
+		c->mode.vsync_end = 586;
+		c->mode.vtotal = 625;
+		c->mode.flags = 0xa;
+#endif
+#if 0
+		snprintf(c->mode.name, sizeof c->mode.name, "1920x1080i");
+		c->mode.vrefresh = 60;
+		c->mode.clock = 74250;
+		c->mode.hdisplay = 1920;
+		c->mode.hsync_start = 2008;
+		c->mode.hsync_end = 2052;
+		c->mode.htotal = 2200;
+		c->mode.vdisplay = 1080;
+		c->mode.vsync_start = 1084;
+		c->mode.vsync_end = 1094;
+		c->mode.vtotal = 1125;
+		c->mode.flags = 0x15;
+#endif
+
+		c->dirty_mode = true;
+	}
+	printf("orig mode = %s, mode = %s\n", c->original_mode.name, c->mode.name);
+
+	/* FIXME need to dig out the mode struct for c->mode_id instead */
+	c->dispw = c->mode.hdisplay;
+	c->disph = c->mode.vdisplay;
+
+	if (!my_surface_alloc(&p->surf, fd, gbm, DRM_FORMAT_XRGB8888, 960, 576, dpy))
+		return;
+
+	p->src.x1 = 0 << 16;
+	p->src.y1 = 0 << 16;
+	p->src.x2 = p->surf.base.width << 16;
+	p->src.y2 = p->surf.base.height << 16;
+
+	p->dst.x1 = 0;
+	p->dst.x2 = c->dispw/2;
+	p->dst.y1 = 0;
+	p->dst.y2 = c->disph/2;
+
+	if (!my_surface_alloc(&c->surf, fd, gbm, DRM_FORMAT_XRGB8888, c->dispw, c->disph, dpy))
+		return;
+
+	p->cur_buf = -1;
+	c->cur_buf = -1;
+
+	render(dpy, ctx, &c->surf, false);
+	render(dpy, ctx, &p->surf, true);
+
+	c->dirty = true;
+	p->dirty = true;
+
+	plane_commit(fd, p);
+}
+
+static void animate_crtc(int fd,
+			 EGLDisplay dpy,
+			 EGLContext ctx,
+			 struct my_crtc *c, struct my_plane *p)
+{
+	int i;
+
+	if (get_free_buffer(&c->surf) < 0 || get_free_buffer(&p->surf) < 0)
+		return;
+
+	float rad = adjust_radius(p);
+	float ang = adjust_angle(p);
+	int w = adjust_w(p);
+	int h = adjust_h(p);
+	if (w < 4)
+		w = 4;
+	if (h < 4)
+		h = 4;
+	int x = rad * sinf(ang) + c->dispw / 2 - w/2;
+	int y = rad * cosf(ang) + c->disph / 2 - h/2;
+
+#if 0
+	w = rand() % (c->dispw/2);
+	h = rand() % (c->disph/2);
+	if (w < 4)
+		w = 4;
+	if (h < 4)
+		h = 4;
+	x = rand() % (c->dispw-16) + 8 - w/2;
+	y = rand() % (c->disph-16) + 8 - h/2;
+#endif
+#if 0
+	w = c->dispw/3;
+	h = c->disph;
+	x = 2*c->dispw/3;
+	y = 0;
+#endif
+
+	p->dst.x1 = x;
+	p->dst.y1 = y;
+	p->dst.x2 = p->dst.x1 + w;
+	p->dst.y2 = p->dst.y1 + h;
+	p->dirty = true;
+
+	c->dirty = true;
+
+	render(dpy, ctx, &c->surf, false);
+	render(dpy, ctx, &p->surf, true);
+
+	plane_commit(fd, p);
+
+	c->frames++;
+
+	if (c->frames >= 1000) {
+		struct timespec cur;
+		clock_gettime(CLOCK_MONOTONIC, &cur);
+		struct timespec diff = cur;
+		tp_sub(&diff, &c->prev);
+		float secs = (float) diff.tv_sec + diff.tv_nsec / 1000000000.0f;
+		printf("%u frames in %f secs, %f fps\n", c->frames, secs, c->frames / secs);
+		c->prev = cur;
+		c->frames = 0;
+	}
+}
+
 int main(int argc, char *argv[])
 {
-	struct my_crtc c = {};
-	struct my_crtc c1 = {};
-	struct my_plane p = {
-		.csc_matrix = PLANE_CSC_MATRIX_BT709,
-		.csc_range = PLANE_CSC_RANGE_MPEG,
-		.state = {
-			.ang = 0.0f,
-			.rad_dir = 1.0f,
-			.rad = 0.0f,
-			.w_dir = 1,
-			.w = 0,
-			.h_dir = 1,
-			.h = 0,
+	struct my_crtc c[8] = {
+		[0] = {
 		},
 	};
-	struct my_plane p1 = {
-		.csc_matrix = PLANE_CSC_MATRIX_BT709,
-		.csc_range = PLANE_CSC_RANGE_MPEG,
-		.state = {
-			.ang = 0.0f,
-			.rad_dir = 1.0f,
-			.rad = 0.0f,
-			.w_dir = 1,
-			.w = 0,
-			.h_dir = 1,
-			.h = 0,
+	struct my_plane p[8] = {
+		[0] = {
+			.csc_matrix = PLANE_CSC_MATRIX_BT709,
+			.csc_range = PLANE_CSC_RANGE_MPEG,
+			.state = {
+				.ang = 0.0f,
+				.rad_dir = 1.0f,
+				.rad = 0.0f,
+				.w_dir = 1,
+				.w = 0,
+				.h_dir = 1,
+				.h = 0,
+			},
 		},
 	};
 	struct ctx uctx = {};
@@ -709,6 +896,7 @@ int main(int argc, char *argv[])
 	EGLint major, minor;
 	EGLint num_configs = 0;
 	EGLConfig config;
+	int count_crtcs = 0;
 
 	if (argc < 2)
 		return 1;
@@ -720,17 +908,26 @@ int main(int argc, char *argv[])
 	if (!init_ctx(&uctx, fd))
 		return 3;
 
-	init_crtc(&c.base, &uctx);
-	init_plane(&p.base, &c.base, &uctx);
+	for (i = 0; i < argc - 1; i++) {
+		c[count_crtcs] = c[0];
+		p[count_crtcs] = p[0];
 
-	if (!pick_connector(&c.base, argv[1]) ||
-	    !pick_encoder(&c.base) ||
-	    !pick_crtc(&c.base) ||
-	    !pick_plane(&p.base))
-		return 4;
+		init_crtc(&c[count_crtcs].base, &uctx);
+		init_plane(&p[count_crtcs].base, &c[count_crtcs].base, &uctx);
 
-	populate_crtc_props(fd, &c);
-	populate_plane_props(fd, &p);
+		if (pick_connector(&c[count_crtcs].base, argv[i + 1]) &&
+		    pick_encoder(&c[count_crtcs].base) &&
+		    pick_crtc(&c[count_crtcs].base) &&
+		    pick_plane(&p[count_crtcs].base)) {
+			count_crtcs++;
+			continue;
+		}
+
+		free_plane(&p[count_crtcs].base);
+		free_crtc(&c[count_crtcs].base);
+		free_encoder(&c[count_crtcs].base);
+		free_connector(&c[count_crtcs].base);
+	}
 
 	gbm = gbm_create_device(fd);
 	if (!gbm)
@@ -752,135 +949,14 @@ int main(int argc, char *argv[])
 	if (!ctx)
 		return 9;
 
-	if (1) {
-#if 0
-		snprintf(c.mode.name, sizeof c.mode.name, "1920x1080");
-		c.mode.vrefresh = 60;
-		c.mode.clock = 148500;
-		c.mode.hdisplay = 1920;
-		c.mode.hsync_start = 2008;
-		c.mode.hsync_end = 2052;
-		c.mode.htotal = 2200;
-		c.mode.vdisplay = 1080;
-		c.mode.vsync_start = 1084;
-		c.mode.vsync_end = 1089;
-		c.mode.vtotal = 1125;
-		c.mode.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
-#endif
-#if 0
-		snprintf(c.mode.name, sizeof c.mode.name, "1024x768");
-		c.mode.vrefresh = 60;
-		c.mode.clock = 65000;
-		c.mode.hdisplay = 1024;
-		c.mode.hsync_start = 1048;
-		c.mode.hsync_end = 1184;
-		c.mode.htotal = 1344;
-		c.mode.vdisplay = 768;
-		c.mode.vsync_start = 771;
-		c.mode.vsync_end = 777;
-		c.mode.vtotal = 806;
-		c.mode.flags = 0xa;
-#endif
-#if 0
-		snprintf(c.mode.name, sizeof c.mode.name, "1280x720");
-		c.mode.vrefresh = 60;
-		c.mode.clock = 74250;
-		c.mode.hdisplay = 1280;
-		c.mode.hsync_start = 1390;
-		c.mode.hsync_end = 1430;
-		c.mode.htotal = 1650;
-		c.mode.vdisplay = 720;
-		c.mode.vsync_start = 725;
-		c.mode.vsync_end = 730;
-		c.mode.vtotal = 750;
-		c.mode.flags = DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC;
-#endif
-#if 0
-		snprintf(c.mode.name, sizeof c.mode.name, "1366x768");
-		c.mode.vrefresh = 60;
-		c.mode.clock = 85885;
-		c.mode.hdisplay = 1366;
-		c.mode.hsync_start = 1439;
-		c.mode.hsync_end = 1583;
-		c.mode.htotal = 1800;
-		c.mode.vdisplay = 768;
-		c.mode.vsync_start = 769;
-		c.mode.vsync_end = 772;
-		c.mode.vtotal = 795;
-		c.mode.flags = 6;
-#endif
-#if 0
-		snprintf(c.mode.name, sizeof c.mode.name, "720x576");
-		c.mode.vrefresh = 50;
-		c.mode.clock = 27000;
-		c.mode.hdisplay = 720;
-		c.mode.hsync_start = 732;
-		c.mode.hsync_end = 796;
-		c.mode.htotal = 864;
-		c.mode.vdisplay = 576;
-		c.mode.vsync_start = 581;
-		c.mode.vsync_end = 586;
-		c.mode.vtotal = 625;
-		c.mode.flags = 0xa;
-#endif
-#if 0
-		snprintf(c.mode.name, sizeof c.mode.name, "1920x1080i");
-		c.mode.vrefresh = 60;
-		c.mode.clock = 74250;
-		c.mode.hdisplay = 1920;
-		c.mode.hsync_start = 2008;
-		c.mode.hsync_end = 2052;
-		c.mode.htotal = 2200;
-		c.mode.vdisplay = 1080;
-		c.mode.vsync_start = 1084;
-		c.mode.vsync_end = 1094;
-		c.mode.vtotal = 1125;
-		c.mode.flags = 0x15;
-#endif
-
-		c.dirty_mode = true;
-	}
-	printf("orig mode = %s, mode = %s\n", c.original_mode.name, c.mode.name);
-
-	/* FIXME need to dig out the mode struct for c.mode_id instead */
-	c.dispw = c.mode.hdisplay;
-	c.disph = c.mode.vdisplay;
-
-	if (!my_surface_alloc(&p.surf, fd, gbm, DRM_FORMAT_XRGB8888, 960, 576, dpy))
-		return 12;
-
-	p.src.x1 = 0 << 16;
-	p.src.y1 = 0 << 16;
-	p.src.x2 = p.surf.base.width << 16;
-	p.src.y2 = p.surf.base.height << 16;
-
-	p.dst.x1 = 0;
-	p.dst.x2 = c.dispw/2;
-	p.dst.y1 = 0;
-	p.dst.y2 = c.disph/2;
-
-	if (!my_surface_alloc(&c.surf, fd, gbm, DRM_FORMAT_XRGB8888, c.dispw, c.disph, dpy))
-		return 13;
-
-	p.cur_buf = -1;
-	c.cur_buf = -1;
-
-	render(dpy, ctx, &c.surf, false);
-	render(dpy, ctx, &p.surf, true);
-
-	c.dirty = true;
-	p.dirty = true;
-
-//	plane_enable(&p, enable);
-
-	plane_commit(fd, &p);
+	for (i = 0; i < count_crtcs; i++)
+		handle_crtc(fd, gbm, dpy, ctx, &c[i], &p[i]);
 
 	term_init();
 
 	srand(time(NULL));
 
 	bool test_running = false;
-	int frames = 0;
 	struct timespec prev;
 
 	while (!quit) {
@@ -905,64 +981,9 @@ int main(int argc, char *argv[])
 		if (FD_ISSET(fd, &fds))
 			drmHandleEvent(fd, &evtctx);
 
-		if (!FD_ISSET(STDIN_FILENO, &fds) && test_running &&
-		    get_free_buffer(&p.surf) >= 0 &&
-		    get_free_buffer(&c.surf) >= 0) {
-			float rad = adjust_radius(&p);
-			float ang = adjust_angle(&p);
-			int w = adjust_w(&p);
-			int h = adjust_h(&p);
-			if (w < 4)
-				w = 4;
-			if (h < 4)
-				h = 4;
-			int x = rad * sinf(ang) + c.dispw / 2 - w/2;
-			int y = rad * cosf(ang) + c.disph / 2 - h/2;
-
-#if 0
-			w = rand() % (c.dispw/2);
-			h = rand() % (c.disph/2);
-			if (w < 4)
-				w = 4;
-			if (h < 4)
-				h = 4;
-			x = rand() % (c.dispw-16) + 8 - w/2;
-			y = rand() % (c.disph-16) + 8 - h/2;
-#endif
-#if 0
-			w = c.dispw/3;
-			h = c.disph;
-			x = 2*c.dispw/3;
-			y = 0;
-#endif
-
-			p.dst.x1 = x;
-			p.dst.y1 = y;
-			p.dst.x2 = p.dst.x1 + w;
-			p.dst.y2 = p.dst.y1 + h;
-			p.dirty = true;
-
-			c.dirty = true;
-
-			render(dpy, ctx, &c.surf, false);
-			render(dpy, ctx, &p.surf, true);
-
-			plane_commit(fd, &p);
-
-			frames++;
-
-			if (frames >= 1000) {
-				struct timespec cur;
-				clock_gettime(CLOCK_MONOTONIC, &cur);
-				struct timespec diff = cur;
-				tp_sub(&diff, &prev);
-				float secs = (float) diff.tv_sec + diff.tv_nsec / 1000000000.0f;
-				printf("%u frames in %f secs, %f fps\n", frames, secs, frames / secs);
-				prev = cur;
-				frames = 0;
-			}
-
-			continue;
+		if (!FD_ISSET(STDIN_FILENO, &fds) && test_running) {
+			for (i = 0; i < count_crtcs; i++)
+				animate_crtc(fd, dpy, ctx, &c[i], &p[i]);
 		}
 
 		if (!FD_ISSET(STDIN_FILENO, &fds))
@@ -973,56 +994,69 @@ int main(int argc, char *argv[])
 
 		switch (cmd) {
 		case 'o':
-			enable = !enable;
-			plane_enable(&p, enable);
-			plane_commit(fd, &p);
+			for (i = 0; i < count_crtcs; i++) {
+				enable = !enable;
+				plane_enable(&p[i], enable);
+				plane_commit(fd, &p[i]);
+			}
 			break;
 		case 'q':
 			quit = 1;
 			break;
 		case 's':
 		case 'x':
-			p.dst.y1 += (cmd == 's') ? -1 : 1;
-			p.dst.y2 += (cmd == 's') ? -1 : 1;
-			p.dirty = true;
-			c.dirty = true;
-			render(dpy, ctx, &c.surf, false);
-			render(dpy, ctx, &p.surf, true);
-			plane_commit(fd, &p);
+			for (i = 0; i < count_crtcs; i++) {
+				p[i].dst.y1 += (cmd == 's') ? -1 : 1;
+				p[i].dst.y2 += (cmd == 's') ? -1 : 1;
+				p[i].dirty = true;
+				c[i].dirty = true;
+				render(dpy, ctx, &c[i].surf, false);
+				render(dpy, ctx, &p[i].surf, true);
+				plane_commit(fd, &p[i]);
+			}
 			break;
 		case 'S':
 		case 'X':
-			p.dst.y2 += (cmd == 'S') ? -1 : 1;
-			p.dirty = true;
-			c.dirty = true;
-			render(dpy, ctx, &c.surf, false);
-			render(dpy, ctx, &p.surf, true);
-			plane_commit(fd, &p);
+			for (i = 0; i < count_crtcs; i++) {
+				p[i].dst.y2 += (cmd == 'S') ? -1 : 1;
+				p[i].dirty = true;
+				c[i].dirty = true;
+				render(dpy, ctx, &c[i].surf, false);
+				render(dpy, ctx, &p[i].surf, true);
+				plane_commit(fd, &p[i]);
+			}
 			break;
 		case 'z':
 		case 'c':
-			p.dst.x1 += (cmd == 'z') ? -1 : 1;
-			p.dst.x2 += (cmd == 'z') ? -1 : 1;
-			p.dirty = true;
-			c.dirty = true;
-			render(dpy, ctx, &c.surf, false);
-			render(dpy, ctx, &p.surf, true);
-			plane_commit(fd, &p);
+			for (i = 0; i < count_crtcs; i++) {
+				p[i].dst.x1 += (cmd == 'z') ? -1 : 1;
+				p[i].dst.x2 += (cmd == 'z') ? -1 : 1;
+				p[i].dirty = true;
+				c[i].dirty = true;
+				render(dpy, ctx, &c[i].surf, false);
+				render(dpy, ctx, &p[i].surf, true);
+				plane_commit(fd, &p[i]);
+			}
 			break;
 		case 'Z':
 		case 'C':
-			p.dst.x2 += (cmd == 'Z') ? -1 : 1;
-			p.dirty = true;
-			c.dirty = true;
-			render(dpy, ctx, &c.surf, false);
-			render(dpy, ctx, &p.surf, true);
-			plane_commit(fd, &p);
+			for (i = 0; i < count_crtcs; i++) {
+				p[i].dst.x2 += (cmd == 'Z') ? -1 : 1;
+				p[i].dirty = true;
+				c[i].dirty = true;
+				render(dpy, ctx, &c[i].surf, false);
+				render(dpy, ctx, &p[i].surf, true);
+				plane_commit(fd, &p[i]);
+			}
 			break;
 		case 't':
 			test_running = !test_running;
 			if (test_running) {
 				clock_gettime(CLOCK_MONOTONIC, &prev);
-				frames = 0;
+				for (i = 0; i < count_crtcs; i++) {
+					c[i].prev = prev;
+					c[i].frames = 0;
+				}
 			}
 			break;
 		case 'T':
@@ -1031,17 +1065,19 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	c.dirty = true;
-	c.mode = c.original_mode;
-	c.dirty_mode = true;
-
 	term_deinit();
 
-	plane_enable(&p, false);
-	plane_commit(fd, &p);
+	for (i = 0; i < count_crtcs; i++) {
+		c[i].dirty = true;
+		c[i].mode = c[i].original_mode;
+		c[i].dirty_mode = true;
 
-	surface_free(&c.surf.base);
-	surface_free(&p.surf.base);
+		plane_enable(&p[i], false);
+		plane_commit(fd, &p[i]);
+
+		surface_free(&c[i].surf.base);
+		surface_free(&p[i].surf.base);
+	}
 
 	gbm_device_destroy(gbm);
 
