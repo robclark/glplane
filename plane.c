@@ -640,7 +640,7 @@ static bool my_surface_alloc(struct my_surface *s,
 	EGLint num_configs = 0;
 	EGLConfig config;
 
-	if (surface_alloc(&s->base, fd, gbm, fmt, w, h))
+	if (!surface_alloc(&s->base, fd, gbm, fmt, w, h))
 		return false;
 
 	if (!eglChooseConfig(dpy, attribs, &config, 1, &num_configs) || num_configs != 1) {
