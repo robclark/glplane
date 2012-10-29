@@ -977,8 +977,11 @@ int main(int argc, char *argv[])
 	if (!ctx)
 		return 9;
 
-	for (i = 0; i < count_crtcs; i++)
+	for (i = 0; i < count_crtcs; i++) {
+		populate_crtc_props(fd, &c[i]);
+		populate_plane_props(fd, &p[i]);
 		handle_crtc(fd, gbm, dpy, ctx, &c[i], &p[i]);
+	}
 
 	term_init();
 
