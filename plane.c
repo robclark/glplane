@@ -85,13 +85,13 @@ struct region {
 	int32_t y2;
 };
 
-struct surface {
-	struct base_surface base;
+struct my_surface {
+	struct surface base;
 	int pending_events;
 };
 
-struct crtc {
-	struct base_crtc base;
+struct my_crtc {
+	struct crtc base;
 
 	int cur_buf;
 	bool dirty;
@@ -100,7 +100,7 @@ struct crtc {
 	unsigned int dispw;
 	unsigned int disph;
 
-	struct surface surf;
+	struct my_surface surf;
 
 	uint32_t original_fb_id;
 	uint32_t fb_id;
@@ -117,8 +117,8 @@ struct crtc {
 	} prop;
 };
 
-struct plane {
-	struct base_plane basel
+struct my_plane {
+	struct plane base;
 
 	int cur_buf;
 	bool dirty;
@@ -126,7 +126,7 @@ struct plane {
 	enum plane_csc_matrix csc_matrix;
 	enum plane_csc_range csc_range;
 
-	struct surface surf;
+	struct my_surface surf;
 
 	struct region src; /* 16.16 */
 	struct region dst;
@@ -162,7 +162,7 @@ struct plane {
 
 static bool throttle;
 
-static int get_free_buffer(struct surface *surf)
+static int get_free_buffer(struct my_surface *surf)
 {
 	if (throttle && surf->pending_events > 0)
 		return -1;
@@ -260,7 +260,7 @@ static void atomic_event(int fd, unsigned int seq, unsigned int tv_sec, unsigned
 {
 	struct plane *p = user_data;
 	struct crtc *c = p->crtc;
-	struct base_buffer *buf;
+	struct buffer *buf;
 	int i;
 
 	if (obj_id == p->plane_id)
@@ -289,7 +289,7 @@ static void plane_commit(int fd, struct plane *p)
 	struct crtc *c = p->crtc;
 	int r;
 	uint32_t flags = DRM_MODE_ATOMIC_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
-	struct base_buffer *cbuf, *pbuf;
+	struct buffer *cbuf, *pbuf;
 
 	if (!p->dirty && !c->dirty && !c->dirty_mode)
 		return;
@@ -522,7 +522,7 @@ static int adjust_h(struct plane *p)
 	return p->state.h;
 }
 
-static void render(EGLDisplay dpy, EGLContext ctx, struct surface *surf, bool col)
+static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool col)
 {
 	static GLfloat view_rotx = 0.0, view_roty = 0.0, view_rotz = 0.0;
 	static const GLfloat verts[3][2] = {
@@ -804,7 +804,7 @@ int main(int argc, char *argv[])
 	c.dispw = c.mode.hdisplay;
 	c.disph = c.mode.vdisplay;
 
-	if (alloc_surface(fd, dpy, gbm, &p.surf.base, DRM_FORMAT_XRGB8888, 960, 576))
+	if (surface_alloc(fd, dpy, gbm, &p.surf.base, DRM_FORMAT_XRGB8888, 960, 576))
 		return 12;
 
 	p.src.x1 = 0 << 16;
@@ -817,7 +817,7 @@ int main(int argc, char *argv[])
 	p.dst.y1 = 0;
 	p.dst.y2 = c.disph/2;
 
-	if (alloc_surface(fd, dpy, gbm, &c.surf.base, DRM_FORMAT_XRGB8888, c.dispw, c.disph))
+	if (surface_alloc(fd, dpy, gbm, &c.surf.base, DRM_FORMAT_XRGB8888, c.dispw, c.disph))
 		return 13;
 
 	p.cur_buf = -1;

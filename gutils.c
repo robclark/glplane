@@ -4,12 +4,12 @@
 
 #include "gutils.h"
 
-bool surface_has_free_buffers(struct base_surface *s)
+bool surface_has_free_buffers(struct surface *s)
 {
 	return gbm_surface_has_free_buffers(s->gbm_surface);
 }
 
-struct base_buffer *surface_find_buffer_by_fb_id(struct base_surface *s, uint32_t fb_id)
+struct buffer *surface_find_buffer_by_fb_id(struct surface *s, uint32_t fb_id)
 {
 	int i;
 
@@ -23,7 +23,7 @@ struct base_buffer *surface_find_buffer_by_fb_id(struct base_surface *s, uint32_
 	return NULL;
 }
 
-void surface_buffer_put_fb(int fd, struct base_surface *s, struct base_buffer *b)
+void surface_buffer_put_fb(int fd, struct surface *s, struct buffer *b)
 {
 	b->ref--;
 	gbm_surface_release_buffer(s->gbm_surface, b->bo);
@@ -31,17 +31,17 @@ void surface_buffer_put_fb(int fd, struct base_surface *s, struct base_buffer *b
 
 static void buffer_nuke(struct gbm_bo *bo, void *data)
 {
-	struct base_buffer *b = data;
+	struct buffer *b = data;
 
 	assert(b->ref == 0);
 
 	drmModeRmFB(b->fd, b->fb_id);
 }
 
-struct base_buffer *surface_get_front(int fd, struct base_surface *s)
+struct buffer *surface_get_front(int fd, struct surface *s)
 {
 	struct gbm_bo *bo;
-	struct base_buffer *b;
+	struct buffer *b;
 	int i;
 
 	bo = gbm_surface_lock_front_buffer(s->gbm_surface);
@@ -88,7 +88,7 @@ struct base_buffer *surface_get_front(int fd, struct base_surface *s)
 	return b;
 }
 
-void surface_free(struct base_surface *s)
+void surface_free(struct surface *s)
 {
 	if (!s->gbm_surface)
 		return;
@@ -100,7 +100,7 @@ void surface_free(struct base_surface *s)
 bool surface_alloc(int fd,
 		   EGLDisplay *dpy,
 		   struct gbm_device *gbm,
-		   struct base_surface *s,
+		   struct surface *s,
 		   unsigned int fmt,
 		   unsigned int width,
 		   unsigned int height)
