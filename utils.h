@@ -15,7 +15,7 @@ struct ctx {
 	drmModePlaneResPtr plane_res;
 };
 
-struct crtc {
+struct base_crtc {
 	struct ctx *ctx;
 
 	uint32_t crtc_id;
@@ -24,24 +24,27 @@ struct crtc {
 	uint32_t connector_id;
 };
 
-struct plane {
+struct base_plane {
 	struct ctx *ctx;
 
 	uint32_t plane_id;
 	struct crtc *c;
 };
 
-bool init_ctx(struct ctx *ctx);
+bool init_ctx(struct ctx *ctx, int fd);
 void free_ctx(struct ctx *ctx);
 
-void pick_connector(drmModeResPtr res, struct crtc *c, const char *name);
-void pick_encoder(drmModeResPtr res, struct crtc *c);
-void pick_crtc(drmModeResPtr res, struct crtc *c);
-void pick_plane(drmModeResPtr res, drmModePlaneResPtr plane_res, struct plane *p);
+void init_crtc(struct base_crtc *c, struct ctx *ctx);
+void init_plane(struct base_plane *p, struct base_crtc *c, struct ctx *ctx);
 
-void free_connector(struct crtc *c);
-void free_encoder(struct crtc *c);
-void free_crtc(struct crtc *c);
-void free_plane(struct plane *p);
+void pick_connector(struct base_crtc *c, const char *name);
+void pick_encoder(struct base_crtc *c);
+void pick_crtc(struct base_crtc *c);
+void pick_plane(struct base_plane *p);
+
+void release_connector(struct base_crtc *c);
+void release_encoder(struct base_crtc *c);
+void release_crtc(struct base_crtc *c);
+void release_plane(struct base_plane *p);
 
 #endif

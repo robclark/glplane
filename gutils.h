@@ -28,7 +28,7 @@ struct base_surface {
 	EGLSurface surface;
 };
 
-int surface_get_free_buffer(struct base_surface *s);
+bool surface_has_free_buffers(struct base_surface *s);
 
 struct base_buffer *surface_find_buffer_by_fb_id(struct base_surface *s, uint32_t fb_id);
 

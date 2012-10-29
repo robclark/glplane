@@ -4,11 +4,9 @@
 
 #include "gutils.h"
 
-int surface_get_free_buffer(struct base_surface *s)
+bool surface_has_free_buffers(struct base_surface *s)
 {
-	if (gbm_surface_has_free_buffers(s->gbm_surface))
-		return 0;
-	return -1;
+	return gbm_surface_has_free_buffers(s->gbm_surface);
 }
 
 struct base_buffer *surface_find_buffer_by_fb_id(struct base_surface *s, uint32_t fb_id)

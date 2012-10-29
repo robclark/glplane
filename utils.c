@@ -401,15 +401,10 @@ void free_plane(struct plane *p)
 	p->plane_idx = 0;
 }
 
-bool init_ctx(struct ctx *ctx)
+bool init_ctx(struct ctx *ctx, int fd)
 {
-	int fd;
 	drmModeResPtr res;
 	drmModePlaneResPtr plane_res;
-
-	fd = = drmOpen("i915", NULL);
-	if (fd < 0)
-		return false;
 
 	res = drmModeGetResources(fd);
 	if (!res) {
@@ -423,34 +418,25 @@ bool init_ctx(struct ctx *ctx)
 		close(fd);
 		return false;
 	}
+
+	ctx->fd = fd;
+	ctx->res = res;
+	ctx->plane_res = plane_res;
 
 	return true;
 }
 
 void free_ctx(struct ctx *ctx)
 {
-	int fd;
-	drmModeResPtr res;
-	drmModePlaneResPtr plane_res;
+	if (ctx->fd < 0)
+		return;
 
-	fd = = drmOpen("i915", NULL);
-	if (fd < 0)
-		return false;
+	drmModeFreePlaneResources(ctx->plane_res);
+	drmModeFreeResources(res);
 
-	res = drmModeGetResources(fd);
-	if (!res) {
-		close(fd);
-		return false;
-	}
-
-	plane_res = drmModeGetPlaneResources(fd);
-        if (!plane_res) {
-		drmModeFreeResources(res);
-		close(fd);
-		return false;
-	}
-
-	return true;
+	ctx->plane_res = NULL;
+	ctx->res = NULL;
+	ctx->fd = -1;
 }
 
 
