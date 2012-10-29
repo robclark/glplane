@@ -854,7 +854,8 @@ static void animate_crtc(int fd,
 		struct timespec diff = cur;
 		tp_sub(&diff, &c->prev);
 		float secs = (float) diff.tv_sec + diff.tv_nsec / 1000000000.0f;
-		printf("%u frames in %f secs, %f fps\n", c->frames, secs, c->frames / secs);
+		printf("crtc [%d] id = %u: %u frames in %f secs, %f fps\n",
+		       c->base.crtc_idx, c->base.crtc_id, c->frames, secs, c->frames / secs);
 		c->prev = cur;
 		c->frames = 0;
 	}
