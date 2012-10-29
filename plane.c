@@ -294,6 +294,36 @@ static void atomic_event(int fd, unsigned int seq, unsigned int tv_sec, unsigned
 		printf("EVENT w/o old_fb_id\n");
 }
 
+static void print_mode(const drmModeModeInfo *mode)
+{
+	printf("[\n"
+	       "\tname = %s\n"
+	       "\tvrefresh = %u\n"
+	       "\tclock = %u\n"
+	       "\thdisplay = %u\n"
+	       "\thsync_start = %u\n"
+	       "\thsync_end = %u\n"
+	       "\thtotal = %u\n"
+	       "\tvdisplay = %u\n"
+	       "\tvsync_start = %u\n"
+	       "\tvsync_end = %u\n"
+	       "\tvtotal = %u\n"
+	       "\tflgags = %x\n"
+	       "]\n",
+	       mode->name,
+	       mode->vrefresh,
+	       mode->clock,
+	       mode->hdisplay,
+	       mode->hsync_start,
+	       mode->hsync_end,
+	       mode->htotal,
+	       mode->vdisplay,
+	       mode->vsync_start,
+	       mode->vsync_end,
+	       mode->vtotal,
+	       mode->flags);
+}
+
 static void plane_commit(int fd, struct my_plane *p)
 {
 	drmModePropertySetPtr set;
@@ -404,27 +434,32 @@ static void plane_commit(int fd, struct my_plane *p)
 	drmModePropertySetFree(set);
 
 	if (r) {
-		unsigned int src_w = p->src.x2 - p->src.x1;
-		unsigned int src_h = p->src.y2 - p->src.y1;
-		unsigned int dst_w = p->dst.x2 - p->dst.x1;
-		unsigned int dst_h = p->dst.y2 - p->dst.y1;
-
 		printf("setatomic returned %d:%s\n", errno, strerror(errno));
 
-		printf("plane = %u, crtc = %u, fb = %u\n",
-		       p->base.plane_id, p->base.crtc->crtc_id, pbuf ? pbuf->fb_id : -1);
-		printf("crtc = %u, fb = %u\n",
-		       c->base.crtc_id, cbuf ? cbuf->fb_id : -1);
+		if (p->dirty) {
+			unsigned int src_w = p->src.x2 - p->src.x1;
+			unsigned int src_h = p->src.y2 - p->src.y1;
+			unsigned int dst_w = p->dst.x2 - p->dst.x1;
+			unsigned int dst_h = p->dst.y2 - p->dst.y1;
 
+			printf("plane = %u, crtc = %u, fb = %u\n",
+			       p->base.plane_id, p->base.crtc->crtc_id, pbuf ? pbuf->fb_id : -1);
 
-		printf("src = %u.%06ux%u.%06u+%u.%06u+%u.%06u\n",
-		       src_w >> 16, ((src_w & 0xffff) * 15625) >> 10,
-		       src_h >> 16, ((src_h & 0xffff) * 15625) >> 10,
-		       p->src.x1 >> 16, ((p->src.x1 & 0xffff) * 15625) >> 10,
-		       p->src.y1 >> 16, ((p->src.y1 & 0xffff) * 15625) >> 10);
+			printf("src = %u.%06ux%u.%06u+%u.%06u+%u.%06u\n",
+			       src_w >> 16, ((src_w & 0xffff) * 15625) >> 10,
+			       src_h >> 16, ((src_h & 0xffff) * 15625) >> 10,
+			       p->src.x1 >> 16, ((p->src.x1 & 0xffff) * 15625) >> 10,
+			       p->src.y1 >> 16, ((p->src.y1 & 0xffff) * 15625) >> 10);
 
-		printf("dst = %ux%u+%d+%d\n",
-		       dst_w, dst_h, p->dst.x1, p->dst.y1);
+			printf("dst = %ux%u+%d+%d\n",
+			       dst_w, dst_h, p->dst.x1, p->dst.y1);
+		}
+
+		if (c->dirty)
+			printf("crtc = %u, fb = %u\n", c->base.crtc_id, cbuf ? cbuf->fb_id : -1);
+
+		if (c->dirty_mode)
+			print_mode(&c->mode);
 
 		if (pbuf) {
 			surface_buffer_put_fb(fd, &p->surf.base, pbuf);
@@ -603,36 +638,6 @@ static const EGLint attribs[] = {
 	EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
 	EGL_NONE
 };
-
-static void print_mode(const drmModeModeInfo *mode)
-{
-	printf("[\n"
-	       "\tname = %s\n"
-	       "\tvrefresh = %u\n"
-	       "\tclock = %u\n"
-	       "\thdisplay = %u\n"
-	       "\thsync_start = %u\n"
-	       "\thsync_end = %u\n"
-	       "\thtotal = %u\n"
-	       "\tvdisplay = %u\n"
-	       "\tvsync_start = %u\n"
-	       "\tvsync_end = %u\n"
-	       "\tvtotal = %u\n"
-	       "\tflgags = %x\n"
-	       "]\n",
-	       mode->name,
-	       mode->vrefresh,
-	       mode->clock,
-	       mode->hdisplay,
-	       mode->hsync_start,
-	       mode->hsync_end,
-	       mode->htotal,
-	       mode->vdisplay,
-	       mode->vsync_start,
-	       mode->vsync_end,
-	       mode->vtotal,
-	       mode->flags);
-}
 
 static bool my_surface_alloc(struct my_surface *s,
 			     int fd,
