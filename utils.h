@@ -48,10 +48,10 @@ void free_ctx(struct ctx *ctx);
 void init_crtc(struct crtc *c, struct ctx *ctx);
 void init_plane(struct plane *p, struct crtc *c, struct ctx *ctx);
 
-void pick_connector(struct crtc *c, const char *name);
-void pick_encoder(struct crtc *c);
-void pick_crtc(struct crtc *c);
-void pick_plane(struct plane *p);
+bool pick_connector(struct crtc *c, const char *name);
+bool pick_encoder(struct crtc *c);
+bool pick_crtc(struct crtc *c);
+bool pick_plane(struct plane *p);
 
 void release_connector(struct crtc *c);
 void release_encoder(struct crtc *c);

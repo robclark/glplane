@@ -716,38 +716,39 @@ int main(int argc, char *argv[])
 		return 2;
 
 	if (!init_ctx(&uctx, fd))
-		return 8;
+		return 3;
 
 	init_crtc(&c.base, &uctx);
 	init_plane(&p.base, &c.base, &uctx);
 
-	pick_connector(&c.base, argv[1]);
-	pick_encoder(&c.base);
-	pick_crtc(&c.base);
-	pick_plane(&p.base);
+	if (!pick_connector(&c.base, argv[1]) ||
+	    !pick_encoder(&c.base) ||
+	    !pick_crtc(&c.base) ||
+	    !pick_plane(&p.base))
+		return 4;
 
 	populate_crtc_props(fd, &c);
 	populate_plane_props(fd, &p);
 
 	gbm = gbm_create_device(fd);
 	if (!gbm)
-		return 3;
+		return 5;
 
 	dpy = eglGetDisplay(gbm);
 	if (dpy == EGL_NO_DISPLAY)
-		return 4;
+		return 6;
 
 	if (!eglInitialize(dpy, &major, &minor))
-		return 5;
+		return 7;
 
 	eglBindAPI(EGL_OPENGL_API);
 
 	if (!eglChooseConfig(dpy, attribs, &config, 1, &num_configs) || num_configs != 1)
-		return 6;
+		return 8;
 
 	ctx = eglCreateContext(dpy, config, EGL_NO_CONTEXT, NULL);
 	if (!ctx)
-		return 7;
+		return 9;
 
 	if (1) {
 #if 0
