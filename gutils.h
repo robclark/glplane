@@ -5,6 +5,9 @@
 #ifndef GUTILS_H
 #define GUTILS_H
 
+#include <stdbool.h>
+#include <stdint.h>
+
 struct buffer {
 	int fd;
 	unsigned int size;
@@ -25,8 +28,11 @@ struct surface {
 	unsigned int width;
 	unsigned int height;
 	uint32_t fmt;
-	EGLSurface surface;
 };
+
+struct gbm_device;
+struct gbm_surface;
+struct gbm_bo;
 
 bool surface_has_free_buffers(struct surface *s);
 
@@ -38,10 +44,9 @@ struct buffer *surface_get_front(int fd, struct surface *s);
 
 void surface_free(struct surface *s);
 
-bool surface_alloc(int fd,
-		   EGLDisplay *dpy,
+bool surface_alloc(struct surface *s,
+		   int fd,
 		   struct gbm_device *gbm,
-		   struct surface *s,
 		   unsigned int fmt,
 		   unsigned int width,
 		   unsigned int height);

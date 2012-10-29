@@ -88,6 +88,7 @@ struct region {
 struct my_surface {
 	struct surface base;
 	int pending_events;
+	EGLSurface egl_surface;
 };
 
 struct my_crtc {
@@ -174,7 +175,7 @@ static int get_free_buffer(struct my_surface *surf)
 
 #define ALIGN(x, a) (((x) + (a) - 1) & ~((a) - 1))
 
-static void plane_enable(struct plane *p, bool enable)
+static void plane_enable(struct my_plane *p, bool enable)
 {
 	if (p->enable == enable)
 		return;
@@ -182,13 +183,12 @@ static void plane_enable(struct plane *p, bool enable)
 	p->dirty = true;
 }
 
-static void populate_props(struct plane *p)
+static void populate_crtc_props(int fd, struct my_crtc *c)
 {
-	struct crtc *c = p->crtc;
 	drmModeObjectPropertiesPtr props;
 	uint32_t i;
 
-	props = drmModeObjectGetProperties(fd, c->crtc_id, DRM_MODE_OBJECT_CRTC);
+	props = drmModeObjectGetProperties(fd, c->base.crtc_id, DRM_MODE_OBJECT_CRTC);
 	if (!props)
 		return;
 
@@ -216,8 +216,14 @@ static void populate_props(struct plane *p)
 	}
 
 	drmModeFreeObjectProperties(props);
+}
 
-	props = drmModeObjectGetProperties(fd, p->plane_id, DRM_MODE_OBJECT_PLANE);
+static void populate_plane_props(int fd, struct my_plane *p)
+{
+	drmModeObjectPropertiesPtr props;
+	uint32_t i;
+
+	props = drmModeObjectGetProperties(fd, p->base.plane_id, DRM_MODE_OBJECT_PLANE);
 	if (!props)
 		return;
 
@@ -258,22 +264,22 @@ static void populate_props(struct plane *p)
 static void atomic_event(int fd, unsigned int seq, unsigned int tv_sec, unsigned int tv_usec,
 			 uint32_t obj_id, uint32_t old_fb_id, void *user_data)
 {
-	struct plane *p = user_data;
-	struct crtc *c = p->crtc;
+	struct my_plane *p = user_data;
+	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
 	struct buffer *buf;
 	int i;
 
-	if (obj_id == p->plane_id)
+	if (obj_id == p->base.plane_id)
 		p->surf.pending_events--;
-	else if (obj_id == c->crtc_id)
+	else if (obj_id == c->base.crtc_id)
 		c->surf.pending_events--;
 
 	if (old_fb_id) {
-		if (obj_id == p->plane_id) {
+		if (obj_id == p->base.plane_id) {
 			buf = surface_find_buffer_by_fb_id(&p->surf.base, old_fb_id);
 			if (buf)
 				surface_buffer_put_fb(fd, &p->surf.base, buf);
-		} else if (obj_id == c->crtc_id) {
+		} else if (obj_id == c->base.crtc_id) {
 			buf = surface_find_buffer_by_fb_id(&c->surf.base, old_fb_id);
 			if (buf)
 				surface_buffer_put_fb(fd, &c->surf.base, buf);
@@ -283,10 +289,10 @@ static void atomic_event(int fd, unsigned int seq, unsigned int tv_sec, unsigned
 		printf("EVENT w/o old_fb_id\n");
 }
 
-static void plane_commit(int fd, struct plane *p)
+static void plane_commit(int fd, struct my_plane *p)
 {
 	drmModePropertySetPtr set;
-	struct crtc *c = p->crtc;
+	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
 	int r;
 	uint32_t flags = DRM_MODE_ATOMIC_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
 	struct buffer *cbuf, *pbuf;
@@ -304,17 +310,17 @@ static void plane_commit(int fd, struct plane *p)
 			return;
 
 		drmModePropertySetAdd(set,
-				      c->crtc_id,
+				      c->base.crtc_id,
 				      c->prop.fb,
 				      cbuf->fb_id);
 
 		drmModePropertySetAdd(set,
-				      c->crtc_id,
+				      c->base.crtc_id,
 				      c->prop.src_x,
 				      0);
 
 		drmModePropertySetAdd(set,
-				      c->crtc_id,
+				      c->base.crtc_id,
 				      c->prop.src_y,
 				      0);
 		c->surf.pending_events++;
@@ -322,7 +328,7 @@ static void plane_commit(int fd, struct plane *p)
 
 	if (c->dirty_mode) {
 		drmModePropertySetAddBlob(set,
-					  c->crtc_id,
+					  c->base.crtc_id,
 					  c->prop.mode,
 					  sizeof(c->mode),
 					  &c->mode);
@@ -336,52 +342,52 @@ static void plane_commit(int fd, struct plane *p)
 			return;
 
 		drmModePropertySetAdd(set,
-				      p->plane_id,
+				      p->base.plane_id,
 				      p->prop.fb,
 				      pbuf->fb_id);
 
 		drmModePropertySetAdd(set,
-				      p->plane_id,
+				      p->base.plane_id,
 				      p->prop.crtc,
-				      p->crtc->crtc_id);
+				      p->base.crtc->crtc_id);
 
 		drmModePropertySetAdd(set,
-				      p->plane_id,
+				      p->base.plane_id,
 				      p->prop.src_x,
 				      p->src.x1);
 
 		drmModePropertySetAdd(set,
-				      p->plane_id,
+				      p->base.plane_id,
 				      p->prop.src_y,
 				      p->src.y1);
 
 		drmModePropertySetAdd(set,
-				      p->plane_id,
+				      p->base.plane_id,
 				      p->prop.src_w,
 				      p->src.x2 - p->src.x1);
 
 		drmModePropertySetAdd(set,
-				      p->plane_id,
+				      p->base.plane_id,
 				      p->prop.src_h,
 				      p->src.y2 - p->src.y1);
 
 		drmModePropertySetAdd(set,
-				      p->plane_id,
+				      p->base.plane_id,
 				      p->prop.crtc_x,
 				      p->dst.x1);
 
 		drmModePropertySetAdd(set,
-				      p->plane_id,
+				      p->base.plane_id,
 				      p->prop.crtc_y,
 				      p->dst.y1);
 
 		drmModePropertySetAdd(set,
-				      p->plane_id,
+				      p->base.plane_id,
 				      p->prop.crtc_w,
 				      p->dst.x2 - p->dst.x1);
 
 		drmModePropertySetAdd(set,
-				      p->plane_id,
+				      p->base.plane_id,
 				      p->prop.crtc_h,
 				      p->dst.y2 - p->dst.y1);
 		p->surf.pending_events++;
@@ -401,9 +407,9 @@ static void plane_commit(int fd, struct plane *p)
 		printf("setatomic returned %d:%s\n", errno, strerror(errno));
 
 		printf("plane = %u, crtc = %u, fb = %u\n",
-		       p->plane_id, p->crtc->crtc_id, pbuf ? pbuf->fb_id : -1);
+		       p->base.plane_id, p->base.crtc->crtc_id, pbuf ? pbuf->fb_id : -1);
 		printf("crtc = %u, fb = %u\n",
-		       c->crtc_id, cbuf ? cbuf->fb_id : -1);
+		       c->base.crtc_id, cbuf ? cbuf->fb_id : -1);
 
 
 		printf("src = %u.%06ux%u.%06u+%u.%06u+%u.%06u\n",
@@ -436,7 +442,7 @@ static void plane_commit(int fd, struct plane *p)
 		printf("setatomic ok\n");
 
 		printf("plane = %u, crtc = %u, fb = %u\n",
-		       p->plane_id, p->crtc->crtc_id, p->fb_id);
+		       p->base.plane_id, p->base.crtc->crtc_id, p->fb_id);
 
 		printf("src = %u.%06ux%u.%06u+%u.%06u+%u.%06u\n",
 		       src_w >> 16, ((src_w & 0xffff) * 15625) >> 10,
@@ -463,7 +469,7 @@ static void tp_sub(struct timespec *tp, const struct timespec *tp2)
 	}
 }
 
-static float adjust_angle(struct plane *p)
+static float adjust_angle(struct my_plane *p)
 {
 	const float ang_adj = M_PI / 500.0f;
 
@@ -474,9 +480,10 @@ static float adjust_angle(struct plane *p)
 	return p->state.ang;
 }
 
-static float adjust_radius(struct plane *p)
+static float adjust_radius(struct my_plane *p)
 {
-	float rad_max = sqrtf(p->crtc->dispw * p->crtc->dispw + p->crtc->disph * p->crtc->disph) / 2.0f;
+	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
+	float rad_max = sqrtf(c->dispw * c->dispw + c->disph * c->disph) / 2.0f;
 	float rad_min = -rad_max;
 	float rad_adj = rad_max / 500.0f;
 
@@ -490,10 +497,11 @@ static float adjust_radius(struct plane *p)
 	return p->state.rad;
 }
 
-static int adjust_w(struct plane *p)
+static int adjust_w(struct my_plane *p)
 {
-	int w_max = p->crtc->dispw;
-	int w_adj = 1;//p->crtc->dispw / 100;
+	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
+	int w_max = c->dispw;
+	int w_adj = 1;//c->dispw / 100;
 
 	p->state.w += w_adj * p->state.w_dir;
 	if (p->state.w > w_max && p->state.w_dir > 0) {
@@ -506,10 +514,11 @@ static int adjust_w(struct plane *p)
 	return p->state.w;
 }
 
-static int adjust_h(struct plane *p)
+static int adjust_h(struct my_plane *p)
 {
-	int h_max = p->crtc->disph;
-	int h_adj = 1;//p->crtc->disph / 100;
+	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
+	int h_max = c->disph;
+	int h_adj = 1;//c->disph / 100;
 
 	p->state.h += h_adj * p->state.h_dir;
 	if (p->state.h > h_max && p->state.h_dir > 0) {
@@ -539,10 +548,10 @@ static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool
 
 	view_rotz += 1.0f;
 
-	if (!eglMakeCurrent(dpy, surf->base.egl_surface, surf->base.egl_surface, ctx))
+	if (!eglMakeCurrent(dpy, surf->egl_surface, surf->egl_surface, ctx))
 		return;
 
-	glViewport(0, 0, (GLint) surf->width, (GLint) surf->height);
+	glViewport(0, 0, (GLint) surf->base.width, (GLint) surf->base.height);
 
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
@@ -576,7 +585,7 @@ static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool
 
 	glFlush();
 
-	eglSwapBuffers(dpy, surf->base.egl_surface);
+	eglSwapBuffers(dpy, surf->egl_surface);
 }
 
 static const EGLint attribs[] = {
@@ -620,12 +629,39 @@ static void print_mode(const drmModeModeInfo *mode)
 	       mode->flags);
 }
 
+static bool my_surface_alloc(struct my_surface *s,
+			     int fd,
+			     struct gbm_device *gbm,
+			     unsigned int fmt,
+			     unsigned int w,
+			     unsigned int h,
+			     EGLDisplay dpy)
+{
+	EGLint num_configs = 0;
+	EGLConfig config;
+
+	if (surface_alloc(&s->base, fd, gbm, fmt, w, h))
+		return 12;
+
+	if (!eglChooseConfig(dpy, attribs, &config, 1, &num_configs) || num_configs != 1) {
+		memset(s, 0, sizeof *s);
+		return false;
+	}
+
+	s->egl_surface = eglCreateWindowSurface(dpy, config, s->base.gbm_surface, NULL);
+	if (s->egl_surface == EGL_NO_SURFACE) {
+		surface_free(&s->base);
+		return false;
+	}
+
+	return true;
+}
+
 int main(int argc, char *argv[])
 {
-	enum color color = BLACK;
-	struct crtc c = {};
-	struct crtc c1 = {};
-	struct plane p = {
+	struct my_crtc c = {};
+	struct my_crtc c1 = {};
+	struct my_plane p = {
 		.csc_matrix = PLANE_CSC_MATRIX_BT709,
 		.csc_range = PLANE_CSC_RANGE_MPEG,
 		.state = {
@@ -638,7 +674,7 @@ int main(int argc, char *argv[])
 			.h = 0,
 		},
 	};
-	struct plane p1 = {
+	struct my_plane p1 = {
 		.csc_matrix = PLANE_CSC_MATRIX_BT709,
 		.csc_range = PLANE_CSC_RANGE_MPEG,
 		.state = {
@@ -651,7 +687,7 @@ int main(int argc, char *argv[])
 			.h = 0,
 		},
 	};
-	struct ctx ctx = {};
+	struct ctx uctx = {};
 
 	bool enable = true;
 	bool quit = false;
@@ -697,18 +733,19 @@ int main(int argc, char *argv[])
 		return 2;
 
 
-	if (!init_ctx(&ctx, fd))
+	if (!init_ctx(&uctx, fd))
 		return 1;
 
-	init_crtc(&c.base, &ctx);
-	init_plane(&p.base, &c.base, &ctx);
+	init_crtc(&c.base, &uctx);
+	init_plane(&p.base, &c.base, &uctx);
 
 	pick_connector(&c.base, argv[1]);
 	pick_encoder(&c.base);
 	pick_crtc(&c.base);
 	pick_plane(&p.base);
 
-	populate_props(&p, c.connector_id);
+	populate_crtc_props(fd, &c);
+	populate_plane_props(fd, &p);
 
 	if (1) {
 #if 0
@@ -804,20 +841,19 @@ int main(int argc, char *argv[])
 	c.dispw = c.mode.hdisplay;
 	c.disph = c.mode.vdisplay;
 
-	if (surface_alloc(fd, dpy, gbm, &p.surf.base, DRM_FORMAT_XRGB8888, 960, 576))
+	if (my_surface_alloc(&p.surf, fd, gbm, DRM_FORMAT_XRGB8888, 960, 576, dpy))
 		return 12;
-
 	p.src.x1 = 0 << 16;
 	p.src.y1 = 0 << 16;
-	p.src.x2 = p.surf.width << 16;
-	p.src.y2 = p.surf.height << 16;
+	p.src.x2 = p.surf.base.width << 16;
+	p.src.y2 = p.surf.base.height << 16;
 
 	p.dst.x1 = 0;
 	p.dst.x2 = c.dispw/2;
 	p.dst.y1 = 0;
 	p.dst.y2 = c.disph/2;
 
-	if (surface_alloc(fd, dpy, gbm, &c.surf.base, DRM_FORMAT_XRGB8888, c.dispw, c.disph))
+	if (my_surface_alloc(&c.surf, fd, gbm, DRM_FORMAT_XRGB8888, c.dispw, c.disph, dpy))
 		return 13;
 
 	p.cur_buf = -1;
@@ -833,7 +869,7 @@ int main(int argc, char *argv[])
 
 	plane_commit(fd, &p);
 
-	init_term();
+	term_init();
 
 	srand(time(NULL));
 
@@ -993,15 +1029,17 @@ int main(int argc, char *argv[])
 	c.mode = c.original_mode;
 	c.dirty_mode = true;
 
-	deinit_term();
+	term_deinit();
 
 	plane_enable(&p, false);
 	plane_commit(fd, &p);
 
-	surface_free(fd, &c.surf.base);
-	surface_free(fd, &p.surf.base);
+	surface_free(&c.surf.base);
+	surface_free(&p.surf.base);
 
 	gbm_device_destroy(gbm);
+
+	free_ctx(&uctx);
 
 	drmClose(fd);
 

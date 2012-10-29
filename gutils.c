@@ -2,7 +2,15 @@
  *
  */
 
+#include <assert.h>
+#include <stdlib.h>
+#include <string.h>
+#include <gbm.h>
+#include <drm_fourcc.h>
+
 #include "gutils.h"
+
+#define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
 
 bool surface_has_free_buffers(struct surface *s)
 {
@@ -50,8 +58,8 @@ struct buffer *surface_get_front(int fd, struct surface *s)
 
 	b = gbm_bo_get_user_data(bo);
 	if (b) {
-		assert(buf->ref >= 0);
-		assert(buf->bo == bo);
+		assert(b->ref >= 0);
+		assert(b->bo == bo);
 		b->ref++;
 		return b;
 	}
@@ -97,17 +105,14 @@ void surface_free(struct surface *s)
 	memset(s, 0, sizeof *s);
 }
 
-bool surface_alloc(int fd,
-		   EGLDisplay *dpy,
+bool surface_alloc(struct surface *s,
+		   int fd,
 		   struct gbm_device *gbm,
-		   struct surface *s,
 		   unsigned int fmt,
 		   unsigned int width,
 		   unsigned int height)
 {
-	EGLint num_configs = 0;
 	uint32_t gbm_fmt;
-	EGLConfig config;
 
 	switch (fmt) {
 	case DRM_FORMAT_XRGB8888:
@@ -123,20 +128,8 @@ bool surface_alloc(int fd,
 	s->width = width;
 	s->height = height;
 
-	if (!eglChooseConfig(dpy, attribs, &config, 1, &num_configs) || num_configs != 1) {
-		memset(s, 0, sizeof *s);
-		return false;
-	}
-
 	s->gbm_surface = gbm_surface_create(gbm, width, height, gbm_fmt, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
 	if (!s->gbm_surface) {
-		memset(s, 0, sizeof *s);
-		return false;
-	}
-
-	s->egl_surface = eglCreateWindowSurface(dpy, config, s->gbm_surface, NULL);
-	if (s->egl_surface == EGL_NO_SURFACE) {
-		gbm_surface_destroy(s->gbm_surface);
 		memset(s, 0, sizeof *s);
 		return false;
 	}

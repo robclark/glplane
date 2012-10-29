@@ -2,6 +2,9 @@
  *
  */
 
+#include <stdio.h>
+#include <string.h>
+
 #include "utils.h"
 
 static uint32_t planes_used;
@@ -25,7 +28,7 @@ static const char *connector_type_str[] = {
 	[DRM_MODE_CONNECTOR_HDMIB]       = "HDMI-B",
 	[DRM_MODE_CONNECTOR_TV]          = "TV",
 	[DRM_MODE_CONNECTOR_eDP]         = "eDP",
-	[DRM_MODE_CONNECTOR_VIRTUAL]     = "Virtual",
+//	[DRM_MODE_CONNECTOR_VIRTUAL]     = "Virtual",
 };
 
 static int get_encoder_idx(drmModeResPtr res, drmModeEncoderPtr encoder)
@@ -78,10 +81,10 @@ void pick_connector(struct crtc *c, const char *name)
 
 		if (!strcmp(name, connector_name)) {
 			printf("picked connector [%u] = id = %u, name = \"%s\"\n",
-			       connector->connector_id, connector_name);
+			       i, connector->connector_id, connector_name);
 			c->connector_id = connector->connector_id;
 			c->connector_idx = i;
-			connecors_used = 1 << i;
+			connectors_used = 1 << i;
 		}
 
 		drmModeFreeConnector(connector);
@@ -96,17 +99,17 @@ static bool encoder_has_free_crtc(drmModeResPtr res, drmModeEncoderPtr encoder)
 	int i;
 
 	for (i = 0; i < res->count_crtcs; i++) {
-		if ((encoder->possible_crtcs & (1 << i)) && !(used_crtcs & (1 << i)))
+		if ((encoder->possible_crtcs & (1 << i)) && !(crtcs_used & (1 << i)))
 			return true;
 	}
 
 	return false;
 }
 
-static void reuse_old_encoder(int fd, drmModeResPtr res, struct crtc *c)
+static bool reuse_old_encoder(int fd, drmModeResPtr res, struct crtc *c)
 {
-	struct drmModeConnectorPtr connector;
-	struct drmModeEncoderPtr encoder;
+	drmModeConnectorPtr connector;
+	drmModeEncoderPtr encoder;
 	int encoder_idx;
 
 	connector = drmModeGetConnector(fd, c->connector_id);
@@ -198,8 +201,8 @@ void pick_encoder(struct crtc *c)
 
 static bool reuse_old_crtc(int fd, drmModeResPtr res, struct crtc *c)
 {
-	struct drmModeEncoderPtr encoder;
-	struct drmModeCrtcPtr crtc;
+	drmModeEncoderPtr encoder;
+	drmModeCrtcPtr crtc;
 	int crtc_idx;
 
 	encoder = drmModeGetEncoder(fd, c->encoder_id);
@@ -283,14 +286,16 @@ void pick_crtc(struct crtc *c)
 
 static bool reuse_old_plane(int fd, drmModePlaneResPtr plane_res, struct plane *p)
 {
-	if (i = 0; i < plane_res->count_planes; i++) {
-		struct drmModePlanePtr plane;
+	int i;
+
+	for (i = 0; i < plane_res->count_planes; i++) {
+		drmModePlanePtr plane;
 
 		plane = drmModeGetPlane(fd, plane_res->planes[i]);
 		if (!plane)
 			continue;
 
-		if (plane->crtc_id != p->c->crtc_id) {
+		if (plane->crtc_id != p->crtc->crtc_id) {
 			drmModeFreePlane(plane);
 			continue;
 		}
@@ -317,15 +322,17 @@ void pick_plane(struct plane *p)
 	int fd = p->ctx->fd;
 	drmModeResPtr res = p->ctx->res;
 	drmModePlaneResPtr plane_res = p->ctx->plane_res;
+	drmModeCrtcPtr crtc;
+	int crtc_idx;
 	int i;
 
-	if (!p->c->crtc_id)
+	if (!p->crtc->crtc_id)
 		return;
 
 	if (reuse_old_plane(fd, plane_res, p))
 		return;
 
-	crtc = drmModeGetCrtc(fd, p->c->crtc_id);
+	crtc = drmModeGetCrtc(fd, p->crtc->crtc_id);
 	if (!crtc)
 		return;
 
@@ -432,11 +439,22 @@ void free_ctx(struct ctx *ctx)
 		return;
 
 	drmModeFreePlaneResources(ctx->plane_res);
-	drmModeFreeResources(res);
+	drmModeFreeResources(ctx->res);
 
 	ctx->plane_res = NULL;
 	ctx->res = NULL;
 	ctx->fd = -1;
 }
 
+void init_crtc(struct crtc *c, struct ctx *ctx)
+{
+	memset(c, 0, sizeof *c);
+	c->ctx = ctx;
+}
 
+void init_plane(struct plane *p, struct crtc *c, struct ctx *ctx)
+{
+	memset(p, 0, sizeof *p);
+	p->crtc = c;
+	c->ctx = ctx;
+}

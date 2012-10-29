@@ -2,6 +2,9 @@
  *
  */
 
+#include <termios.h>
+#include <unistd.h>
+
 #include "term.h"
 
 static struct termios saved_termios;

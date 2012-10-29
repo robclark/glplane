@@ -9,6 +9,13 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
+#include <stddef.h>
+
+#define container_of(ptr, type, member) ({			\
+	const typeof(((type *)NULL)->member) *__ptr = (ptr);	\
+	(type*)((char*)__ptr - offsetof(type, member));		\
+})
+
 struct ctx {
 	int fd;
 	drmModeResPtr res;
@@ -21,14 +28,18 @@ struct crtc {
 	uint32_t crtc_id;
 	uint32_t crtc_idx;
 	uint32_t encoder_id;
+	uint32_t encoder_idx;
 	uint32_t connector_id;
+	uint32_t connector_idx;
 };
 
 struct plane {
 	struct ctx *ctx;
 
+	struct crtc *crtc;
+
 	uint32_t plane_id;
-	struct crtc *c;
+	uint32_t plane_idx;
 };
 
 bool init_ctx(struct ctx *ctx, int fd);
