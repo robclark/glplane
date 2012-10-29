@@ -713,30 +713,30 @@ int main(int argc, char *argv[])
 
 	fd = drmOpen("i915", NULL);
 	if (fd < 0)
-		return 1;
+		return 2;
 
 	gbm = gbm_create_device(fd);
 	if (!gbm)
-		return 2;
+		return 3;
 
 	dpy = eglGetDisplay(gbm);
 	if (dpy == EGL_NO_DISPLAY)
-		return 2;
+		return 4;
 
 	if (!eglInitialize(dpy, &major, &minor))
-		return 2;
+		return 5;
 
 	eglBindAPI(EGL_OPENGL_API);
 
 	if (!eglChooseConfig(dpy, attribs, &config, 1, &num_configs) || num_configs != 1)
-		return 2;
+		return 6;
 
 	ctx = eglCreateContext(dpy, config, EGL_NO_CONTEXT, NULL);
 	if (!ctx)
-		return 2;
+		return 7;
 
 	if (!init_ctx(&uctx, fd))
-		return 1;
+		return 8;
 
 	init_crtc(&c.base, &uctx);
 	init_plane(&p.base, &c.base, &uctx);
