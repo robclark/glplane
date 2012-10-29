@@ -843,8 +843,9 @@ int main(int argc, char *argv[])
 	c.dispw = c.mode.hdisplay;
 	c.disph = c.mode.vdisplay;
 
-	if (my_surface_alloc(&p.surf, fd, gbm, DRM_FORMAT_XRGB8888, 960, 576, dpy))
+	if (!my_surface_alloc(&p.surf, fd, gbm, DRM_FORMAT_XRGB8888, 960, 576, dpy))
 		return 12;
+
 	p.src.x1 = 0 << 16;
 	p.src.y1 = 0 << 16;
 	p.src.x2 = p.surf.base.width << 16;
@@ -855,7 +856,7 @@ int main(int argc, char *argv[])
 	p.dst.y1 = 0;
 	p.dst.y2 = c.disph/2;
 
-	if (my_surface_alloc(&c.surf, fd, gbm, DRM_FORMAT_XRGB8888, c.dispw, c.disph, dpy))
+	if (!my_surface_alloc(&c.surf, fd, gbm, DRM_FORMAT_XRGB8888, c.dispw, c.disph, dpy))
 		return 13;
 
 	p.cur_buf = -1;

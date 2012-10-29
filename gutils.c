@@ -119,7 +119,7 @@ bool surface_alloc(struct surface *s,
 		gbm_fmt = GBM_FORMAT_XRGB8888;
 		break;
 	default:
-		return 1;
+		return false;
 	}
 
 	memset(s, 0, sizeof *s);
