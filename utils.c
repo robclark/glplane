@@ -550,8 +550,6 @@ bool pick_mode(struct crtc *c, drmModeModeInfoPtr mode, const char *name)
 		return false;
 
 	for (i = 0; i < connector->count_modes; i++) {
-		drmModeModeInfoPtr mode;
-
 		if (strcmp(connector->modes[i].name, name))
 			continue;
 
