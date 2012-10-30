@@ -35,14 +35,13 @@ bool surface_has_free_buffers(struct surface *s);
 
 struct buffer *surface_find_buffer_by_fb_id(struct surface *s, uint32_t fb_id);
 
-void surface_buffer_put_fb(int fd, struct surface *s, struct buffer *b);
+void surface_buffer_put_fb(struct surface *s, struct buffer *b);
 
 struct buffer *surface_get_front(int fd, struct surface *s);
 
 void surface_free(struct surface *s);
 
 bool surface_alloc(struct surface *s,
-		   int fd,
 		   struct gbm_device *gbm,
 		   unsigned int fmt,
 		   unsigned int width,

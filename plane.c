@@ -274,7 +274,6 @@ static void atomic_event(int fd, unsigned int seq, unsigned int tv_sec, unsigned
 	struct my_plane *p = user_data;
 	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
 	struct buffer *buf;
-	int i;
 
 	dprintf("event: obj=%u old_fb=%u\n", obj_id, old_fb_id);
 
@@ -292,11 +291,11 @@ static void atomic_event(int fd, unsigned int seq, unsigned int tv_sec, unsigned
 		if (obj_id == p->base.plane_id) {
 			buf = surface_find_buffer_by_fb_id(&p->surf.base, old_fb_id);
 			if (buf)
-				surface_buffer_put_fb(fd, &p->surf.base, buf);
+				surface_buffer_put_fb(&p->surf.base, buf);
 		} else if (obj_id == c->base.crtc_id) {
 			buf = surface_find_buffer_by_fb_id(&c->surf.base, old_fb_id);
 			if (buf)
-				surface_buffer_put_fb(fd, &c->surf.base, buf);
+				surface_buffer_put_fb(&c->surf.base, buf);
 		} else
 			dprintf("EVENT for unknown obj %u\n", obj_id);
 	} else
@@ -386,7 +385,7 @@ static void plane_commit(int fd, struct my_plane *p)
 			pbuf = surface_get_front(fd, &p->surf.base);
 			if (!pbuf) {
 				if (cbuf) {
-					surface_buffer_put_fb(fd, &c->surf.base, cbuf);
+					surface_buffer_put_fb(&c->surf.base, cbuf);
 					dprintf("crtc pending events %u -> %u\n",
 						c->surf.pending_events, c->surf.pending_events - 1);
 					c->surf.pending_events--;
@@ -467,7 +466,7 @@ static void plane_commit(int fd, struct my_plane *p)
 			unsigned int dst_h = p->dst.y2 - p->dst.y1;
 
 			printf("plane = %u, crtc = %u, fb = %u\n",
-			       p->base.plane_id, p->base.crtc->crtc_id, pbuf ? pbuf->fb_id : -1);
+			       p->base.plane_id, p->base.crtc->crtc_id, pbuf ? pbuf->fb_id : 0);
 
 			printf("src = %u.%06ux%u.%06u+%u.%06u+%u.%06u\n",
 			       src_w >> 16, ((src_w & 0xffff) * 15625) >> 10,
@@ -480,7 +479,7 @@ static void plane_commit(int fd, struct my_plane *p)
 		}
 
 		if (c->dirty)
-			printf("crtc = %u, fb = %u\n", c->base.crtc_id, cbuf ? cbuf->fb_id : -1);
+			printf("crtc = %u, fb = %u\n", c->base.crtc_id, cbuf ? cbuf->fb_id : 0);
 
 		if (c->dirty_mode) {
 			print_mode("mode", &c->mode);
@@ -489,13 +488,13 @@ static void plane_commit(int fd, struct my_plane *p)
 		}
 
 		if (pbuf) {
-			surface_buffer_put_fb(fd, &p->surf.base, pbuf);
+			surface_buffer_put_fb(&p->surf.base, pbuf);
 			dprintf("plane pending events %u -> %u\n",
 				p->surf.pending_events, p->surf.pending_events - 1);
 			p->surf.pending_events--;
 		}
 		if (cbuf) {
-			surface_buffer_put_fb(fd, &c->surf.base, cbuf);
+			surface_buffer_put_fb(&c->surf.base, cbuf);
 			dprintf("crtc pending events %u -> %u\n",
 				c->surf.pending_events, c->surf.pending_events - 1);
 			c->surf.pending_events--;
@@ -671,7 +670,6 @@ static const EGLint attribs[] = {
 };
 
 static bool my_surface_alloc(struct my_surface *s,
-			     int fd,
 			     struct gbm_device *gbm,
 			     unsigned int fmt,
 			     unsigned int w,
@@ -681,7 +679,7 @@ static bool my_surface_alloc(struct my_surface *s,
 	EGLint num_configs = 0;
 	EGLConfig config;
 
-	if (!surface_alloc(&s->base, fd, gbm, fmt, w, h))
+	if (!surface_alloc(&s->base, gbm, fmt, w, h))
 		return false;
 
 	if (!eglChooseConfig(dpy, attribs, &config, 1, &num_configs) || num_configs != 1) {
@@ -806,7 +804,7 @@ static void handle_crtc(int fd,
 	c->dispw = c->mode.hdisplay;
 	c->disph = c->mode.vdisplay;
 
-	if (!my_surface_alloc(&p->surf, fd, gbm, DRM_FORMAT_XRGB8888, 960, 576, dpy))
+	if (!my_surface_alloc(&p->surf, gbm, DRM_FORMAT_XRGB8888, 960, 576, dpy))
 		return;
 
 	p->src.x1 = 0 << 16;
@@ -819,7 +817,7 @@ static void handle_crtc(int fd,
 	p->dst.y1 = 0;
 	p->dst.y2 = c->disph/2;
 
-	if (!my_surface_alloc(&c->surf, fd, gbm, DRM_FORMAT_XRGB8888, c->dispw, c->disph, dpy))
+	if (!my_surface_alloc(&c->surf, gbm, DRM_FORMAT_XRGB8888, c->dispw, c->disph, dpy))
 		return;
 
 	p->cur_buf = -1;
@@ -839,8 +837,6 @@ static bool animate_crtc(int fd,
 			 EGLContext ctx,
 			 struct my_crtc *c, struct my_plane *p)
 {
-	int i;
-
 	if (get_free_buffer(&c->surf) < 0 || get_free_buffer(&p->surf) < 0)
 		return false;
 
@@ -930,10 +926,6 @@ int main(int argc, char *argv[])
 	int r;
 	int i;
 	struct gbm_device *gbm;
-	unsigned int handle;
-	unsigned int crtc_idx;
-	unsigned int connector_id = 0;
-	unsigned int encoder_id = 0;
 	drmEventContext evtctx = {
 		.version = DRM_EVENT_CONTEXT_VERSION,
 		.atomic_handler = atomic_event,
@@ -972,10 +964,10 @@ int main(int argc, char *argv[])
 			continue;
 		}
 
-		free_plane(&p[count_crtcs].base);
-		free_crtc(&c[count_crtcs].base);
-		free_encoder(&c[count_crtcs].base);
-		free_connector(&c[count_crtcs].base);
+		release_plane(&p[count_crtcs].base);
+		release_crtc(&c[count_crtcs].base);
+		release_encoder(&c[count_crtcs].base);
+		release_connector(&c[count_crtcs].base);
 	}
 
 	gbm = gbm_create_device(fd);

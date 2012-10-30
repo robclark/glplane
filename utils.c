@@ -7,7 +7,7 @@
 
 #include "utils.h"
 
-#define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
+#define ARRAY_SIZE(a) ((int)(sizeof(a)/sizeof((a)[0])))
 
 static uint32_t planes_used;
 static uint32_t crtcs_used;
@@ -414,7 +414,6 @@ bool pick_plane(struct plane *p)
 
 	for (i = 0; i < plane_res->count_planes; i++) {
 		drmModePlanePtr plane;
-		int j;
 
 		plane = drmModeGetPlane(fd, plane_res->planes[i]);
 		if (!plane)
@@ -446,7 +445,7 @@ bool pick_plane(struct plane *p)
 	return p->plane_id != 0;
 }
 
-void free_connector(struct crtc *c)
+void release_connector(struct crtc *c)
 {
 	if (!c->connector_id)
 		return;
@@ -456,7 +455,7 @@ void free_connector(struct crtc *c)
 	c->connector_idx = 0;
 }
 
-void free_encoder(struct crtc *c)
+void release_encoder(struct crtc *c)
 {
 	if (!c->encoder_id)
 		return;
@@ -466,7 +465,7 @@ void free_encoder(struct crtc *c)
 	c->encoder_idx = 0;
 }
 
-void free_crtc(struct crtc *c)
+void release_crtc(struct crtc *c)
 {
 	if (!c->crtc_id)
 		return;
@@ -476,7 +475,7 @@ void free_crtc(struct crtc *c)
 	c->crtc_idx = 0;
 }
 
-void free_plane(struct plane *p)
+void release_plane(struct plane *p)
 {
 	if (!p->plane_id)
 		return;
@@ -537,7 +536,6 @@ void init_plane(struct plane *p, struct crtc *c, struct ctx *ctx)
 bool pick_mode(struct crtc *c, drmModeModeInfoPtr mode, const char *name)
 {
 	int fd = c->ctx->fd;
-	drmModeResPtr res = c->ctx->res;
 	drmModeConnectorPtr connector;
 	int i;
 	bool found = false;

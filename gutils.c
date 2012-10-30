@@ -8,9 +8,11 @@
 #include <gbm.h>
 #include <drm_fourcc.h>
 
+#include <xf86drmMode.h>
+
 #include "gutils.h"
 
-#define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
+#define ARRAY_SIZE(a) ((int)(sizeof(a)/sizeof((a)[0])))
 
 bool surface_has_free_buffers(struct surface *s)
 {
@@ -31,7 +33,7 @@ struct buffer *surface_find_buffer_by_fb_id(struct surface *s, uint32_t fb_id)
 	return NULL;
 }
 
-void surface_buffer_put_fb(int fd, struct surface *s, struct buffer *b)
+void surface_buffer_put_fb(struct surface *s, struct buffer *b)
 {
 	b->ref--;
 	gbm_surface_release_buffer(s->gbm_surface, b->bo);
@@ -106,7 +108,6 @@ void surface_free(struct surface *s)
 }
 
 bool surface_alloc(struct surface *s,
-		   int fd,
 		   struct gbm_device *gbm,
 		   unsigned int fmt,
 		   unsigned int width,
