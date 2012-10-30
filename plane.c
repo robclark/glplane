@@ -944,6 +944,12 @@ static bool animate_crtc(int fd,
 	return true;
 }
 
+static void usage(const char *name)
+{
+	fprintf(stderr, "Usage: %s <connector> <mode> [[<connector> <mode>] ...]\n",
+		name);
+}
+
 int main(int argc, char *argv[])
 {
 	struct my_crtc c[8] = {
@@ -984,8 +990,10 @@ int main(int argc, char *argv[])
 	int count_crtcs = 0;
 	const char *modes[8] = {};
 
-	if (argc < 3)
+	if (argc < 3) {
+		usage(argv[0]);
 		return 1;
+	}
 
 	fd = drmOpen("i915", NULL);
 	if (fd < 0)
@@ -1018,8 +1026,10 @@ int main(int argc, char *argv[])
 		release_connector(&c[count_crtcs].base);
 	}
 
-	if (count_crtcs == 0)
+	if (count_crtcs == 0) {
+		usage(argv[0]);
 		return 4;
+	}
 
 	gbm = gbm_create_device(fd);
 	if (!gbm)
