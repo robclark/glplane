@@ -204,7 +204,7 @@ static void populate_crtc_props(int fd, struct my_crtc *c)
 		if (!prop)
 			continue;
 
-		printf("crtc prop %s\n", prop->name);
+		printf("crtc prop %s %u\n", prop->name, prop->prop_id);
 
 		if (!strcmp(prop->name, "SRC_X"))
 			c->prop.src_x = prop->prop_id;
@@ -239,7 +239,7 @@ static void populate_plane_props(int fd, struct my_plane *p)
 		if (!prop)
 			continue;
 
-		printf("plane prop %s\n", prop->name);
+		printf("plane prop %s %u\n", prop->name, prop->prop_id);
 
 		if (!strcmp(prop->name, "SRC_X"))
 			p->prop.src_x = prop->prop_id;
@@ -303,6 +303,23 @@ static void atomic_event(int fd, unsigned int seq, unsigned int tv_sec, unsigned
 		dprintf("EVENT w/o old_fb_id\n");
 }
 
+#if 0
+static void drmModePropertySetAdd2(drmModePropertySetPtr set, uint32_t obj_id, uint32_t prop_id, uint64_t value)
+{
+	printf("obj=%u, prop=%u, value=%llu\n", obj_id, prop_id, value);
+	drmModePropertySetAdd(set, obj_id, prop_id, value);
+}
+
+static void drmModePropertySetAddBlob2(drmModePropertySetPtr set, uint32_t obj_id, uint32_t prop_id,
+				       uint64_t length, void *blob)
+{
+	printf("obj=%u, prop=%u, length=%llu, blob=%p\n", obj_id, prop_id, length, blob);
+	drmModePropertySetAddBlob(set, obj_id, prop_id, length, blob);
+}
+
+#define drmModePropertySetAdd drmModePropertySetAdd2
+#define drmModePropertySetAddBlob drmModePropertySetAddBlob2
+#endif
 
 static void plane_commit(int fd, struct my_plane *p)
 {
