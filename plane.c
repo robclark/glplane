@@ -276,10 +276,17 @@ static void atomic_event(int fd, unsigned int seq, unsigned int tv_sec, unsigned
 	struct buffer *buf;
 	int i;
 
-	if (obj_id == p->base.plane_id)
+	dprintf("event: obj=%u old_fb=%u\n", obj_id, old_fb_id);
+
+	if (obj_id == p->base.plane_id) {
+		dprintf("plane pending events %u -> %u\n",
+			p->surf.pending_events, p->surf.pending_events - 1);
 		p->surf.pending_events--;
-	else if (obj_id == c->base.crtc_id)
+	} else if (obj_id == c->base.crtc_id) {
+		dprintf("crtc pending events %u -> %u\n",
+			c->surf.pending_events, c->surf.pending_events - 1);
 		c->surf.pending_events--;
+	}
 
 	if (old_fb_id) {
 		if (obj_id == p->base.plane_id) {
@@ -291,9 +298,9 @@ static void atomic_event(int fd, unsigned int seq, unsigned int tv_sec, unsigned
 			if (buf)
 				surface_buffer_put_fb(fd, &c->surf.base, buf);
 		} else
-			printf("EVENT for unknown obj %u\n", obj_id);
+			dprintf("EVENT for unknown obj %u\n", obj_id);
 	} else
-		printf("EVENT w/o old_fb_id\n");
+		dprintf("EVENT w/o old_fb_id\n");
 }
 
 
@@ -333,6 +340,9 @@ static void plane_commit(int fd, struct my_plane *p)
 				      c->base.crtc_id,
 				      c->prop.src_y,
 				      0);
+
+		dprintf("crtc pending events %u -> %u\n",
+			c->surf.pending_events, c->surf.pending_events + 1);
 		c->surf.pending_events++;
 	}
 
@@ -360,6 +370,8 @@ static void plane_commit(int fd, struct my_plane *p)
 			if (!pbuf) {
 				if (cbuf) {
 					surface_buffer_put_fb(fd, &c->surf.base, cbuf);
+					dprintf("crtc pending events %u -> %u\n",
+						c->surf.pending_events, c->surf.pending_events - 1);
 					c->surf.pending_events--;
 				}
 				drmModePropertySetFree(set);
@@ -416,8 +428,11 @@ static void plane_commit(int fd, struct my_plane *p)
 				      p->base.plane_id,
 				      p->prop.crtc_h,
 				      p->dst.y2 - p->dst.y1);
-		if (pbuf)
+		if (pbuf) {
+			dprintf("plane pending events %u -> %u\n",
+				p->surf.pending_events, p->surf.pending_events + 1);
 			p->surf.pending_events++;
+		}
 	}
 
 	//r = drmModePropertySetCommit(fd, DRM_MODE_ATOMIC_TEST_ONLY, set);
@@ -458,10 +473,14 @@ static void plane_commit(int fd, struct my_plane *p)
 
 		if (pbuf) {
 			surface_buffer_put_fb(fd, &p->surf.base, pbuf);
+			dprintf("plane pending events %u -> %u\n",
+				p->surf.pending_events, p->surf.pending_events - 1);
 			p->surf.pending_events--;
 		}
 		if (cbuf) {
 			surface_buffer_put_fb(fd, &c->surf.base, cbuf);
+			dprintf("crtc pending events %u -> %u\n",
+				c->surf.pending_events, c->surf.pending_events - 1);
 			c->surf.pending_events--;
 		}
 
@@ -806,7 +825,7 @@ static bool animate_crtc(int fd,
 	int i;
 
 	if (get_free_buffer(&c->surf) < 0 || get_free_buffer(&p->surf) < 0)
-		return true;
+		return false;
 
 	float rad = adjust_radius(p);
 	float ang = adjust_angle(p);
@@ -863,7 +882,7 @@ static bool animate_crtc(int fd,
 		c->frames = 0;
 	}
 
-	return false;
+	return true;
 }
 
 int main(int argc, char *argv[])
@@ -1002,19 +1021,26 @@ int main(int argc, char *argv[])
 		if (r < 0 && errno == EINTR)
 			continue;
 
-		if (FD_ISSET(fd, &fds))
-			drmHandleEvent(fd, &evtctx);
-
-		if (!FD_ISSET(STDIN_FILENO, &fds) && test_running) {
-			bool sleep = false;
-
-			for (i = 0; i < count_crtcs; i++)
-				sleep |= animate_crtc(fd, dpy, ctx, &c[i], &p[i]);
-
-			if (sleep)
-				t = NULL;
-			else
+		if (FD_ISSET(fd, &fds)) {
+			if (test_running)
 				t = &timeout;
+			drmHandleEvent(fd, &evtctx);
+		}
+
+		if (t && test_running) {
+			bool no_sleep = false;
+
+			/*
+			 * sleep if everyone is waiting for
+			 * free buffers, otherwise don't.
+			 */
+			for (i = 0; i < count_crtcs; i++)
+				no_sleep |= animate_crtc(fd, dpy, ctx, &c[i], &p[i]);
+
+			if (no_sleep)
+				t = &timeout;
+			else
+				t = NULL;
 		}
 
 		if (!FD_ISSET(STDIN_FILENO, &fds))
