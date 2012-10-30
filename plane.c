@@ -1018,6 +1018,9 @@ int main(int argc, char *argv[])
 		release_connector(&c[count_crtcs].base);
 	}
 
+	if (count_crtcs == 0)
+		return 4;
+
 	gbm = gbm_create_device(fd);
 	if (!gbm)
 		return 5;
