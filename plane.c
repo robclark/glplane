@@ -89,6 +89,7 @@ struct my_surface {
 	struct surface base;
 	int pending_events;
 	EGLSurface egl_surface;
+	GLfloat view_rotx, view_roty, view_rotz;
 };
 
 struct my_crtc {
@@ -97,6 +98,7 @@ struct my_crtc {
 	int cur_buf;
 	bool dirty;
 	bool dirty_mode;
+	bool dirty_cursor;
 
 	unsigned int dispw;
 	unsigned int disph;
@@ -118,6 +120,11 @@ struct my_crtc {
 		uint32_t fb;
 		uint32_t mode;
 		uint32_t connector_ids;
+		uint32_t cursor_id;
+		uint32_t cursor_x;
+		uint32_t cursor_y;
+		uint32_t cursor_w;
+		uint32_t cursor_h;
 	} prop;
 
 	uint32_t connector_ids[8];
@@ -216,6 +223,16 @@ static void populate_crtc_props(int fd, struct my_crtc *c)
 			c->prop.mode = prop->prop_id;
 		else if (!strcmp(prop->name, "CONNECTOR_IDS"))
 			c->prop.connector_ids = prop->prop_id;
+		else if (!strcmp(prop->name, "CURSOR_ID"))
+			c->prop.cursor_id = prop->prop_id;
+		else if (!strcmp(prop->name, "CURSOR_X"))
+			c->prop.cursor_x = prop->prop_id;
+		else if (!strcmp(prop->name, "CURSOR_Y"))
+			c->prop.cursor_y = prop->prop_id;
+		else if (!strcmp(prop->name, "CURSOR_W"))
+			c->prop.cursor_w = prop->prop_id;
+		else if (!strcmp(prop->name, "CURSOR_H"))
+			c->prop.cursor_h = prop->prop_id;
 
 		drmModeFreeProperty(prop);
 	}
@@ -380,6 +397,29 @@ static void plane_commit(int fd, struct my_plane *p)
 		flags &= ~DRM_MODE_ATOMIC_NONBLOCK;
 	}
 
+	if (c->dirty_cursor) {
+		drmModePropertySetAdd(set,
+				      c->base.crtc_id,
+				      c->prop.cursor_id,
+				      0);
+		drmModePropertySetAdd(set,
+				      c->base.crtc_id,
+				      c->prop.cursor_x,
+				      0);
+		drmModePropertySetAdd(set,
+				      c->base.crtc_id,
+				      c->prop.cursor_y,
+				      0);
+		drmModePropertySetAdd(set,
+				      c->base.crtc_id,
+				      c->prop.cursor_w,
+				      64);
+		drmModePropertySetAdd(set,
+				      c->base.crtc_id,
+				      c->prop.cursor_h,
+				      64);
+	}
+
 	if (p->dirty) {
 		if (p->enable) {
 			pbuf = surface_get_front(fd, &p->surf.base);
@@ -527,6 +567,7 @@ static void plane_commit(int fd, struct my_plane *p)
 	p->dirty = false;
 	c->dirty = false;
 	c->dirty_mode = false;
+	c->dirty_cursor = false;
 }
 
 static void tp_sub(struct timespec *tp, const struct timespec *tp2)
@@ -603,7 +644,6 @@ static int adjust_h(struct my_plane *p)
 
 static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool col)
 {
-	static GLfloat view_rotx = 0.0, view_roty = 0.0, view_rotz = 0.0;
 	static const GLfloat verts[3][2] = {
 		{ -1, -1, },
 		{  1, -1, },
@@ -616,7 +656,11 @@ static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool
 	};
 	GLfloat ar = (GLfloat) surf->base.width / (GLfloat) surf->base.height;
 
-	view_rotz += 1.0f;
+	if (col) {
+		surf->view_rotx += 0.25f;
+		surf->view_roty += 1.0f;
+	} else
+		surf->view_rotz += 1.0f;
 
 	if (!eglMakeCurrent(dpy, surf->egl_surface, surf->egl_surface, ctx))
 		return;
@@ -637,9 +681,9 @@ static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool
 	glClearColor(0.4, 0.4, 0.4, 0.0);
 
 	glPushMatrix();
-	glRotatef(view_rotx, 1, 0, 0);
-	glRotatef(view_roty, 0, 1, 0);
-	glRotatef(view_rotz, 0, 0, 1);
+	glRotatef(surf->view_rotx, 1, 0, 0);
+	glRotatef(surf->view_roty, 0, 1, 0);
+	glRotatef(surf->view_rotz, 0, 0, 1);
 
 	glVertexPointer(2, GL_FLOAT, 0, verts);
 	glColorPointer(3, GL_FLOAT, 0, colors);
@@ -828,6 +872,8 @@ static void handle_crtc(int fd,
 
 	c->dirty = true;
 	p->dirty = true;
+
+	c->dirty_cursor = true;
 
 	plane_commit(fd, p);
 }
