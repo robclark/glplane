@@ -982,6 +982,7 @@ int main(int argc, char *argv[])
 	EGLint num_configs = 0;
 	EGLConfig config;
 	int count_crtcs = 0;
+	const char *modes[8] = {};
 
 	if (argc < 3)
 		return 1;
@@ -993,7 +994,7 @@ int main(int argc, char *argv[])
 	if (!init_ctx(&uctx, fd))
 		return 3;
 
-	for (i = 0; i < argc - 2; i++) {
+	for (i = 0; i < argc - 2; i += 2) {
 		if (count_crtcs) {
 			c[count_crtcs] = c[0];
 			p[count_crtcs] = p[0];
@@ -1002,10 +1003,11 @@ int main(int argc, char *argv[])
 		init_crtc(&c[count_crtcs].base, &uctx);
 		init_plane(&p[count_crtcs].base, &c[count_crtcs].base, &uctx);
 
-		if (pick_connector(&c[count_crtcs].base, argv[i + 2]) &&
+		if (pick_connector(&c[count_crtcs].base, argv[i + 1]) &&
 		    pick_encoder(&c[count_crtcs].base) &&
 		    pick_crtc(&c[count_crtcs].base) &&
 		    pick_plane(&p[count_crtcs].base)) {
+			modes[count_crtcs] = argv[i + 2];
 			count_crtcs++;
 			continue;
 		}
@@ -1040,7 +1042,7 @@ int main(int argc, char *argv[])
 		populate_crtc_props(fd, &c[i]);
 		populate_plane_props(fd, &p[i]);
 		plane_enable(&p[i], enable);
-		handle_crtc(fd, gbm, dpy, ctx, argv[1], &c[i], &p[i]);
+		handle_crtc(fd, gbm, dpy, ctx, modes[i], &c[i], &p[i]);
 	}
 
 	term_init();
