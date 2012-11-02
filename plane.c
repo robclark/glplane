@@ -699,7 +699,10 @@ static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool
 	glDisableClientState(GL_COLOR_ARRAY);
 
 	glPopMatrix();
+}
 
+static void swap_buffers(EGLDisplay dpy, struct my_surface *surf)
+{
 	glFlush();
 
 	eglSwapBuffers(dpy, surf->egl_surface);
@@ -868,7 +871,9 @@ static void handle_crtc(struct my_ctx *my_ctx,
 		return;
 
 	render(dpy, ctx, &c->surf, false);
+	swap_buffers(dpy, &c->surf);
 	render(dpy, ctx, &p->surf, true);
+	swap_buffers(dpy, &p->surf);
 
 	c->dirty = true;
 	p->dirty = true;
@@ -929,7 +934,9 @@ static bool animate_crtc(struct my_ctx *my_ctx,
 	c->dirty = true;
 
 	render(dpy, ctx, &c->surf, false);
+	swap_buffers(dpy, &c->surf);
 	render(dpy, ctx, &p->surf, true);
+	swap_buffers(dpy, &p->surf);
 
 	plane_commit(my_ctx, p);
 
@@ -1150,7 +1157,9 @@ int main(int argc, char *argv[])
 				p[i].dirty = true;
 				c[i].dirty = true;
 				render(dpy, ctx, &c[i].surf, false);
+				swap_buffers(dpy, &c[i].surf);
 				render(dpy, ctx, &p[i].surf, true);
+				swap_buffers(dpy, &p[i].surf);
 				plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
@@ -1162,7 +1171,9 @@ int main(int argc, char *argv[])
 				p[i].dirty = true;
 				c[i].dirty = true;
 				render(dpy, ctx, &c[i].surf, false);
+				swap_buffers(dpy, &c[i].surf);
 				render(dpy, ctx, &p[i].surf, true);
+				swap_buffers(dpy, &p[i].surf);
 				plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
@@ -1175,7 +1186,9 @@ int main(int argc, char *argv[])
 				p[i].dirty = true;
 				c[i].dirty = true;
 				render(dpy, ctx, &c[i].surf, false);
+				swap_buffers(dpy, &c[i].surf);
 				render(dpy, ctx, &p[i].surf, true);
+				swap_buffers(dpy, &p[i].surf);
 				plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
@@ -1187,7 +1200,9 @@ int main(int argc, char *argv[])
 				p[i].dirty = true;
 				c[i].dirty = true;
 				render(dpy, ctx, &c[i].surf, false);
+				swap_buffers(dpy, &c[i].surf);
 				render(dpy, ctx, &p[i].surf, true);
+				swap_buffers(dpy, &p[i].surf);
 				plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
