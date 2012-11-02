@@ -1165,8 +1165,8 @@ int main(int argc, char *argv[])
 
 		switch (cmd) {
 		case 'o':
+			enable = !enable;
 			for (i = 0; i < count_crtcs; i++) {
-				enable = !enable;
 				plane_enable(&p[i], enable);
 				if (enable && produce_frame(dpy, ctx, &p[i]))
 					plane_commit(&my_ctx, &p[i]);
