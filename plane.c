@@ -60,6 +60,13 @@
 #define min(a,b) ((a) < (b) ? (a) : (b))
 #define max(a,b) ((a) > (b) ? (a) : (b))
 
+static enum {
+	ANIM_CURVE,
+	ANIM_RAND,
+	ANIM_STATIC,
+	ANIM_COUNT,
+} anim_mode;
+
 struct region {
 	int32_t x1;
 	int32_t y1;
@@ -876,36 +883,42 @@ static bool animate_crtc(struct my_ctx *my_ctx,
 			 EGLContext ctx,
 			 struct my_crtc *c, struct my_plane *p)
 {
+	int w, h, x, y;
+
 	if (get_free_buffer(&c->surf) < 0 || get_free_buffer(&p->surf) < 0)
 		return false;
 
-	float rad = adjust_radius(p);
-	float ang = adjust_angle(p);
-	int w = adjust_w(p);
-	int h = adjust_h(p);
-	if (w < 4)
-		w = 4;
-	if (h < 4)
-		h = 4;
-	int x = rad * sinf(ang) + c->dispw / 2 - w/2;
-	int y = rad * cosf(ang) + c->disph / 2 - h/2;
-
-#if 0
-	w = rand() % (c->dispw/2);
-	h = rand() % (c->disph/2);
-	if (w < 4)
-		w = 4;
-	if (h < 4)
-		h = 4;
-	x = rand() % (c->dispw-16) + 8 - w/2;
-	y = rand() % (c->disph-16) + 8 - h/2;
-#endif
-#if 0
-	w = c->dispw/3;
-	h = c->disph;
-	x = 2*c->dispw/3;
-	y = 0;
-#endif
+	switch (anim_mode) {
+		float rad, ang;
+	case ANIM_CURVE:
+		rad = adjust_radius(p);
+		ang = adjust_angle(p);
+		w = adjust_w(p);
+		h = adjust_h(p);
+		if (w < 4)
+			w = 4;
+		if (h < 4)
+			h = 4;
+		x = rad * sinf(ang) + c->dispw / 2 - w/2;
+		y = rad * cosf(ang) + c->disph / 2 - h/2;
+		break;
+	case ANIM_RAND:
+		w = rand() % (c->dispw/2);
+		h = rand() % (c->disph/2);
+		if (w < 4)
+			w = 4;
+		if (h < 4)
+			h = 4;
+		x = rand() % (c->dispw-16) + 8 - w/2;
+		y = rand() % (c->disph-16) + 8 - h/2;
+		break;
+	case ANIM_STATIC:
+		w = p->dst.x2 - p->dst.x1;
+		h = p->dst.y2 - p->dst.y1;
+		x = p->dst.x1;
+		y = p->dst.y1;
+		break;
+	}
 
 	p->dst.x1 = x;
 	p->dst.y1 = y;
@@ -1192,6 +1205,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'T':
 			throttle = !throttle;
+			break;
+		case 'a':
+			anim_mode = (anim_mode + 1) % ANIM_COUNT;
 			break;
 		}
 	}
