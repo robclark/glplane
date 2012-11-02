@@ -760,9 +760,12 @@ static bool my_surface_alloc(struct my_surface *s,
 	return true;
 }
 
-static void produce_frame(EGLDisplay dpy, EGLContext ctx, struct my_plane *p)
+static bool produce_frame(EGLDisplay dpy, EGLContext ctx, struct my_plane *p)
 {
 	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
+
+	if (get_free_buffer(&c->surf) < 0 || get_free_buffer(&p->surf) < 0)
+		return false;
 
 	render(dpy, ctx, &c->surf, false);
 	if (anim_clear)
@@ -774,6 +777,8 @@ static void produce_frame(EGLDisplay dpy, EGLContext ctx, struct my_plane *p)
 	swap_buffers(dpy, &c->surf);
 	render(dpy, ctx, &p->surf, true);
 	swap_buffers(dpy, &p->surf);
+
+	return true;
 }
 
 static void handle_crtc(struct my_ctx *my_ctx,
@@ -904,8 +909,8 @@ static void handle_crtc(struct my_ctx *my_ctx,
 	p->dirty = true;
 	c->dirty_cursor = true;
 
-	produce_frame(dpy, ctx, p);
-	plane_commit(my_ctx, p);
+	if (produce_frame(dpy, ctx, p))
+		plane_commit(my_ctx, p);
 }
 
 static bool animate_crtc(struct my_ctx *my_ctx,
@@ -1163,7 +1168,8 @@ int main(int argc, char *argv[])
 			for (i = 0; i < count_crtcs; i++) {
 				enable = !enable;
 				plane_enable(&p[i], enable);
-				plane_commit(&my_ctx, &p[i]);
+				if (enable && produce_frame(dpy, ctx, &p[i]))
+					plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
 			break;
@@ -1177,8 +1183,8 @@ int main(int argc, char *argv[])
 				p[i].dst.y2 += (cmd == 's') ? -1 : 1;
 				p[i].dirty = true;
 				c[i].dirty = true;
-				produce_frame(dpy, ctx, &p[i]);
-				plane_commit(&my_ctx, &p[i]);
+				if (produce_frame(dpy, ctx, &p[i]))
+					plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
 			break;
@@ -1188,8 +1194,8 @@ int main(int argc, char *argv[])
 				p[i].dst.y2 += (cmd == 'S') ? -1 : 1;
 				p[i].dirty = true;
 				c[i].dirty = true;
-				produce_frame(dpy, ctx, &p[i]);
-				plane_commit(&my_ctx, &p[i]);
+				if (produce_frame(dpy, ctx, &p[i]))
+					plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
 			break;
@@ -1200,8 +1206,8 @@ int main(int argc, char *argv[])
 				p[i].dst.x2 += (cmd == 'z') ? -1 : 1;
 				p[i].dirty = true;
 				c[i].dirty = true;
-				produce_frame(dpy, ctx, &p[i]);
-				plane_commit(&my_ctx, &p[i]);
+				if (produce_frame(dpy, ctx, &p[i]))
+					plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
 			break;
@@ -1211,8 +1217,8 @@ int main(int argc, char *argv[])
 				p[i].dst.x2 += (cmd == 'Z') ? -1 : 1;
 				p[i].dirty = true;
 				c[i].dirty = true;
-				produce_frame(dpy, ctx, &p[i]);
-				plane_commit(&my_ctx, &p[i]);
+				if (produce_frame(dpy, ctx, &p[i]))
+					plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
 			break;
