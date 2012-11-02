@@ -760,6 +760,22 @@ static bool my_surface_alloc(struct my_surface *s,
 	return true;
 }
 
+static void produce_frame(EGLDisplay dpy, EGLContext ctx, struct my_plane *p)
+{
+	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
+
+	render(dpy, ctx, &c->surf, false);
+	if (anim_clear)
+		clear_rect(dpy, ctx, &c->surf,
+			   p->dst.x1,
+			   p->dst.y1,
+			   p->dst.x2 - p->dst.x1,
+			   p->dst.y2 - p->dst.y1);
+	swap_buffers(dpy, &c->surf);
+	render(dpy, ctx, &p->surf, true);
+	swap_buffers(dpy, &p->surf);
+}
+
 static void handle_crtc(struct my_ctx *my_ctx,
 			struct gbm_device *gbm,
 			EGLDisplay dpy,
@@ -884,16 +900,11 @@ static void handle_crtc(struct my_ctx *my_ctx,
 	if (!my_surface_alloc(&c->surf, gbm, DRM_FORMAT_XRGB8888, c->dispw, c->disph, dpy))
 		return;
 
-	render(dpy, ctx, &c->surf, false);
-	swap_buffers(dpy, &c->surf);
-	render(dpy, ctx, &p->surf, true);
-	swap_buffers(dpy, &p->surf);
-
 	c->dirty = true;
 	p->dirty = true;
-
 	c->dirty_cursor = true;
 
+	produce_frame(dpy, ctx, p);
 	plane_commit(my_ctx, p);
 }
 
@@ -947,13 +958,7 @@ static bool animate_crtc(struct my_ctx *my_ctx,
 
 	c->dirty = true;
 
-	render(dpy, ctx, &c->surf, false);
-	if (anim_clear)
-		clear_rect(dpy, ctx, &c->surf, x, y, w, h);
-	swap_buffers(dpy, &c->surf);
-	render(dpy, ctx, &p->surf, true);
-	swap_buffers(dpy, &p->surf);
-
+	produce_frame(dpy, ctx, p);
 	plane_commit(my_ctx, p);
 
 	c->frames++;
@@ -1172,10 +1177,7 @@ int main(int argc, char *argv[])
 				p[i].dst.y2 += (cmd == 's') ? -1 : 1;
 				p[i].dirty = true;
 				c[i].dirty = true;
-				render(dpy, ctx, &c[i].surf, false);
-				swap_buffers(dpy, &c[i].surf);
-				render(dpy, ctx, &p[i].surf, true);
-				swap_buffers(dpy, &p[i].surf);
+				produce_frame(dpy, ctx, &p[i]);
 				plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
@@ -1186,10 +1188,7 @@ int main(int argc, char *argv[])
 				p[i].dst.y2 += (cmd == 'S') ? -1 : 1;
 				p[i].dirty = true;
 				c[i].dirty = true;
-				render(dpy, ctx, &c[i].surf, false);
-				swap_buffers(dpy, &c[i].surf);
-				render(dpy, ctx, &p[i].surf, true);
-				swap_buffers(dpy, &p[i].surf);
+				produce_frame(dpy, ctx, &p[i]);
 				plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
@@ -1201,10 +1200,7 @@ int main(int argc, char *argv[])
 				p[i].dst.x2 += (cmd == 'z') ? -1 : 1;
 				p[i].dirty = true;
 				c[i].dirty = true;
-				render(dpy, ctx, &c[i].surf, false);
-				swap_buffers(dpy, &c[i].surf);
-				render(dpy, ctx, &p[i].surf, true);
-				swap_buffers(dpy, &p[i].surf);
+				produce_frame(dpy, ctx, &p[i]);
 				plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
@@ -1215,10 +1211,7 @@ int main(int argc, char *argv[])
 				p[i].dst.x2 += (cmd == 'Z') ? -1 : 1;
 				p[i].dirty = true;
 				c[i].dirty = true;
-				render(dpy, ctx, &c[i].surf, false);
-				swap_buffers(dpy, &c[i].surf);
-				render(dpy, ctx, &p[i].surf, true);
-				swap_buffers(dpy, &p[i].surf);
+				produce_frame(dpy, ctx, &p[i]);
 				plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
