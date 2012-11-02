@@ -60,22 +60,6 @@
 #define min(a,b) ((a) < (b) ? (a) : (b))
 #define max(a,b) ((a) > (b) ? (a) : (b))
 
-#define PAGE_SIZE 4096
-
-#define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
-
-//#define IVB_VGA_HACK
-
-enum plane_csc_matrix {
-	PLANE_CSC_MATRIX_BT601,
-	PLANE_CSC_MATRIX_BT709,
-};
-
-enum plane_csc_range {
-	PLANE_CSC_RANGE_MPEG,
-	PLANE_CSC_RANGE_JPEG,
-};
-
 struct region {
 	int32_t x1;
 	int32_t y1;
@@ -93,7 +77,6 @@ struct my_surface {
 struct my_crtc {
 	struct crtc base;
 
-	int cur_buf;
 	bool dirty;
 	bool dirty_mode;
 	bool dirty_cursor;
@@ -132,11 +115,7 @@ struct my_crtc {
 struct my_plane {
 	struct plane base;
 
-	int cur_buf;
 	bool dirty;
-
-	enum plane_csc_matrix csc_matrix;
-	enum plane_csc_range csc_range;
 
 	struct my_surface surf;
 	struct buffer *buf;
@@ -881,9 +860,6 @@ static void handle_crtc(struct my_ctx *my_ctx,
 	if (!my_surface_alloc(&c->surf, gbm, DRM_FORMAT_XRGB8888, c->dispw, c->disph, dpy))
 		return;
 
-	p->cur_buf = -1;
-	c->cur_buf = -1;
-
 	render(dpy, ctx, &c->surf, false);
 	render(dpy, ctx, &p->surf, true);
 
@@ -976,8 +952,6 @@ int main(int argc, char *argv[])
 	};
 	struct my_plane p[8] = {
 		[0] = {
-			.csc_matrix = PLANE_CSC_MATRIX_BT709,
-			.csc_range = PLANE_CSC_RANGE_MPEG,
 			.state = {
 				.ang = 0.0f,
 				.rad_dir = 1.0f,
