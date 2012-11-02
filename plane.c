@@ -66,8 +66,6 @@
 
 //#define IVB_VGA_HACK
 
-static int fd;
-
 enum plane_csc_matrix {
 	PLANE_CSC_MATRIX_BT601,
 	PLANE_CSC_MATRIX_BT709,
@@ -104,6 +102,7 @@ struct my_crtc {
 	unsigned int disph;
 
 	struct my_surface surf;
+	struct buffer *buf;
 
 	uint32_t original_fb_id;
 	uint32_t fb_id;
@@ -140,6 +139,7 @@ struct my_plane {
 	enum plane_csc_range csc_range;
 
 	struct my_surface surf;
+	struct buffer *buf;
 
 	struct region src; /* 16.16 */
 	struct region dst;
@@ -171,6 +171,14 @@ struct my_plane {
 		int h_dir;
 		int h;
 	} state;
+};
+
+struct my_ctx {
+	int fd;
+	int count_crtcs;
+	struct my_plane *planes;
+	drmModePropertySetPtr set;
+	uint32_t flags;
 };
 
 static bool throttle;
@@ -288,35 +296,43 @@ static void populate_plane_props(int fd, struct my_plane *p)
 static void atomic_event(int fd, unsigned int seq, unsigned int tv_sec, unsigned int tv_usec,
 			 uint32_t obj_id, uint32_t old_fb_id, void *user_data)
 {
-	struct my_plane *p = user_data;
-	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
-	struct buffer *buf;
+	struct my_ctx *ctx = user_data;
+	int i;
 
-	dprintf("event: obj=%u old_fb=%u\n", obj_id, old_fb_id);
+	for (i = 0; i < ctx->count_crtcs; i++) {
+		struct my_plane *p = &ctx->planes[i];
+		struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
+		struct buffer *buf;
 
-	if (obj_id == p->base.plane_id) {
-		dprintf("plane pending events %u -> %u\n",
-			p->surf.pending_events, p->surf.pending_events - 1);
-		p->surf.pending_events--;
-	} else if (obj_id == c->base.crtc_id) {
-		dprintf("crtc pending events %u -> %u\n",
-			c->surf.pending_events, c->surf.pending_events - 1);
-		c->surf.pending_events--;
-	}
+		dprintf("event: obj=%u old_fb=%u\n", obj_id, old_fb_id);
 
-	if (old_fb_id) {
 		if (obj_id == p->base.plane_id) {
-			buf = surface_find_buffer_by_fb_id(&p->surf.base, old_fb_id);
-			if (buf)
-				surface_buffer_put_fb(&p->surf.base, buf);
+			dprintf("plane pending events %u -> %u\n",
+				p->surf.pending_events, p->surf.pending_events - 1);
+			p->surf.pending_events--;
 		} else if (obj_id == c->base.crtc_id) {
-			buf = surface_find_buffer_by_fb_id(&c->surf.base, old_fb_id);
-			if (buf)
-				surface_buffer_put_fb(&c->surf.base, buf);
+			dprintf("crtc pending events %u -> %u\n",
+				c->surf.pending_events, c->surf.pending_events - 1);
+			c->surf.pending_events--;
 		} else
-			dprintf("EVENT for unknown obj %u\n", obj_id);
-	} else
-		dprintf("EVENT w/o old_fb_id\n");
+			continue;
+
+		if (old_fb_id) {
+			if (obj_id == p->base.plane_id) {
+				buf = surface_find_buffer_by_fb_id(&p->surf.base, old_fb_id);
+				if (buf)
+					surface_buffer_put_fb(&p->surf.base, buf);
+			} else if (obj_id == c->base.crtc_id) {
+				buf = surface_find_buffer_by_fb_id(&c->surf.base, old_fb_id);
+				if (buf)
+					surface_buffer_put_fb(&c->surf.base, buf);
+			} else
+				dprintf("EVENT for unknown obj %u\n", obj_id);
+		} else
+			dprintf("EVENT w/o old_fb_id\n");
+
+		break;
+	}
 }
 
 #if 0
@@ -337,39 +353,53 @@ static void drmModePropertySetAddBlob2(drmModePropertySetPtr set, uint32_t obj_i
 #define drmModePropertySetAddBlob drmModePropertySetAddBlob2
 #endif
 
-static void plane_commit(int fd, struct my_plane *p)
+static drmModePropertySetPtr set;
+static uint32_t flags;
+
+static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 {
-	drmModePropertySetPtr set;
 	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
-	int r;
-	uint32_t flags = DRM_MODE_ATOMIC_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
-	struct buffer *cbuf = NULL, *pbuf = NULL;
 
 	if (!p->dirty && !c->dirty && !c->dirty_mode)
 		return;
 
-	set = drmModePropertySetAlloc();
-	if (!set)
-		return;
+	assert(c->buf == NULL);
+	assert(p->buf == NULL);
+
+	if (!ctx->set) {
+		ctx->set = drmModePropertySetAlloc();
+		if (!ctx->set)
+			return;
+		ctx->flags = DRM_MODE_ATOMIC_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
+	}
 
 	if (c->dirty) {
-		cbuf = surface_get_front(fd, &c->surf.base);
-		if (!cbuf) {
-			drmModePropertySetFree(set);
+		c->buf = surface_get_front(ctx->fd, &c->surf.base);
+		if (!c->buf)
+			return;
+	}
+
+	if (p->dirty && p->enable) {
+		p->buf = surface_get_front(ctx->fd, &p->surf.base);
+		if (!p->buf) {
+			surface_buffer_put_fb(&c->surf.base, c->buf);
+			c->buf = NULL;
 			return;
 		}
+	}
 
-		drmModePropertySetAdd(set,
+	if (c->dirty) {
+		drmModePropertySetAdd(ctx->set,
 				      c->base.crtc_id,
 				      c->prop.fb,
-				      cbuf->fb_id);
+				      c->buf->fb_id);
 
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      c->base.crtc_id,
 				      c->prop.src_x,
 				      0);
 
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      c->base.crtc_id,
 				      c->prop.src_y,
 				      0);
@@ -380,194 +410,181 @@ static void plane_commit(int fd, struct my_plane *p)
 	}
 
 	if (c->dirty_mode) {
-		drmModePropertySetAddBlob(set,
+		drmModePropertySetAddBlob(ctx->set,
 					  c->base.crtc_id,
 					  c->prop.mode,
 					  sizeof(c->mode),
 					  &c->mode);
 
 		c->connector_ids[0] = c->base.connector_id;
-		drmModePropertySetAddBlob(set,
+		drmModePropertySetAddBlob(ctx->set,
 					  c->base.crtc_id,
 					  c->prop.connector_ids,
 					  4,
 					  c->connector_ids);
 
-		/* don't try nonblocking modeset, the kernel will reject it. */
-		flags &= ~DRM_MODE_ATOMIC_NONBLOCK;
+		/* don't try nonblocking modectx->set, the kernel will reject it. */
+		ctx->flags &= ~DRM_MODE_ATOMIC_NONBLOCK;
 	}
 
 	if (c->dirty_cursor) {
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      c->base.crtc_id,
 				      c->prop.cursor_id,
 				      0);
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      c->base.crtc_id,
 				      c->prop.cursor_x,
 				      0);
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      c->base.crtc_id,
 				      c->prop.cursor_y,
 				      0);
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      c->base.crtc_id,
 				      c->prop.cursor_w,
 				      64);
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      c->base.crtc_id,
 				      c->prop.cursor_h,
 				      64);
 	}
 
 	if (p->dirty) {
-		if (p->enable) {
-			pbuf = surface_get_front(fd, &p->surf.base);
-			if (!pbuf) {
-				if (cbuf) {
-					surface_buffer_put_fb(&c->surf.base, cbuf);
-					dprintf("crtc pending events %u -> %u\n",
-						c->surf.pending_events, c->surf.pending_events - 1);
-					c->surf.pending_events--;
-				}
-				drmModePropertySetFree(set);
-				return;
-			}
-		}
-
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      p->base.plane_id,
 				      p->prop.fb,
-				      pbuf ? pbuf->fb_id : 0);
+				      p->buf ? p->buf->fb_id : 0);
 
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      p->base.plane_id,
 				      p->prop.crtc,
 				      p->base.crtc->crtc_id);
 
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      p->base.plane_id,
 				      p->prop.src_x,
 				      p->src.x1);
 
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      p->base.plane_id,
 				      p->prop.src_y,
 				      p->src.y1);
 
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      p->base.plane_id,
 				      p->prop.src_w,
 				      p->src.x2 - p->src.x1);
 
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      p->base.plane_id,
 				      p->prop.src_h,
 				      p->src.y2 - p->src.y1);
 
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      p->base.plane_id,
 				      p->prop.crtc_x,
 				      p->dst.x1);
 
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      p->base.plane_id,
 				      p->prop.crtc_y,
 				      p->dst.y1);
 
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      p->base.plane_id,
 				      p->prop.crtc_w,
 				      p->dst.x2 - p->dst.x1);
 
-		drmModePropertySetAdd(set,
+		drmModePropertySetAdd(ctx->set,
 				      p->base.plane_id,
 				      p->prop.crtc_h,
 				      p->dst.y2 - p->dst.y1);
-		if (pbuf) {
+		if (p->buf) {
 			dprintf("plane pending events %u -> %u\n",
 				p->surf.pending_events, p->surf.pending_events + 1);
 			p->surf.pending_events++;
 		}
 	}
+}
+
+static void commit_state(struct my_ctx *ctx)
+{
+	int i, r;
+
+	if (!ctx->set)
+		return;
 
 	//r = drmModePropertySetCommit(fd, DRM_MODE_ATOMIC_TEST_ONLY, set);
-	r = drmModePropertySetCommit(fd, flags, p, set);
+	r = drmModePropertySetCommit(ctx->fd, ctx->flags, ctx, ctx->set);
 
-	drmModePropertySetFree(set);
+	drmModePropertySetFree(ctx->set);
+	ctx->set = NULL;
 
 	if (r) {
 		printf("setatomic returned %d:%s\n", errno, strerror(errno));
 
-		if (p->dirty) {
-			unsigned int src_w = p->src.x2 - p->src.x1;
-			unsigned int src_h = p->src.y2 - p->src.y1;
-			unsigned int dst_w = p->dst.x2 - p->dst.x1;
-			unsigned int dst_h = p->dst.y2 - p->dst.y1;
+		for (i = 0; i < ctx->count_crtcs; i++) {
+			struct my_plane *p = &ctx->planes[i];
+			struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
 
-			printf("plane = %u, crtc = %u, fb = %u\n",
-			       p->base.plane_id, p->base.crtc->crtc_id, pbuf ? pbuf->fb_id : 0);
+			if (p->dirty) {
+				unsigned int src_w = p->src.x2 - p->src.x1;
+				unsigned int src_h = p->src.y2 - p->src.y1;
+				unsigned int dst_w = p->dst.x2 - p->dst.x1;
+				unsigned int dst_h = p->dst.y2 - p->dst.y1;
 
-			printf("src = %u.%06ux%u.%06u+%u.%06u+%u.%06u\n",
-			       src_w >> 16, ((src_w & 0xffff) * 15625) >> 10,
-			       src_h >> 16, ((src_h & 0xffff) * 15625) >> 10,
-			       p->src.x1 >> 16, ((p->src.x1 & 0xffff) * 15625) >> 10,
-			       p->src.y1 >> 16, ((p->src.y1 & 0xffff) * 15625) >> 10);
+				printf("plane = %u, crtc = %u, fb = %u\n",
+				       p->base.plane_id, p->base.crtc->crtc_id, p->buf ? p->buf->fb_id : 0);
 
-			printf("dst = %ux%u+%d+%d\n",
-			       dst_w, dst_h, p->dst.x1, p->dst.y1);
+				printf("src = %u.%06ux%u.%06u+%u.%06u+%u.%06u\n",
+				       src_w >> 16, ((src_w & 0xffff) * 15625) >> 10,
+				       src_h >> 16, ((src_h & 0xffff) * 15625) >> 10,
+				       p->src.x1 >> 16, ((p->src.x1 & 0xffff) * 15625) >> 10,
+				       p->src.y1 >> 16, ((p->src.y1 & 0xffff) * 15625) >> 10);
+
+				printf("dst = %ux%u+%d+%d\n",
+				       dst_w, dst_h, p->dst.x1, p->dst.y1);
+			}
+
+			if (c->dirty)
+				printf("crtc = %u, fb = %u\n", c->base.crtc_id, c->buf ? c->buf->fb_id : 0);
+
+			if (c->dirty_mode) {
+				print_mode("mode", &c->mode);
+
+				printf("connector_id = %u\n", c->connector_ids[0]);
+			}
+
+			if (p->buf) {
+				surface_buffer_put_fb(&p->surf.base, p->buf);
+				dprintf("plane pending events %u -> %u\n",
+					p->surf.pending_events, p->surf.pending_events - 1);
+				p->surf.pending_events--;
+				p->buf = NULL;
+			}
+			if (c->buf) {
+				surface_buffer_put_fb(&c->surf.base, c->buf);
+				dprintf("crtc pending events %u -> %u\n",
+					c->surf.pending_events, c->surf.pending_events - 1);
+				c->surf.pending_events--;
+				c->buf = NULL;
+			}
 		}
-
-		if (c->dirty)
-			printf("crtc = %u, fb = %u\n", c->base.crtc_id, cbuf ? cbuf->fb_id : 0);
-
-		if (c->dirty_mode) {
-			print_mode("mode", &c->mode);
-
-			printf("connector_id = %u\n", c->connector_ids[0]);
-		}
-
-		if (pbuf) {
-			surface_buffer_put_fb(&p->surf.base, pbuf);
-			dprintf("plane pending events %u -> %u\n",
-				p->surf.pending_events, p->surf.pending_events - 1);
-			p->surf.pending_events--;
-		}
-		if (cbuf) {
-			surface_buffer_put_fb(&c->surf.base, cbuf);
-			dprintf("crtc pending events %u -> %u\n",
-				c->surf.pending_events, c->surf.pending_events - 1);
-			c->surf.pending_events--;
-		}
-
 		return;
 	}
 
-	if (0) {
-		unsigned int src_w = p->src.x2 - p->src.x1;
-		unsigned int src_h = p->src.y2 - p->src.y1;
-		unsigned int dst_w = p->dst.x2 - p->dst.x1;
-		unsigned int dst_h = p->dst.y2 - p->dst.y1;
+	for (i = 0; i < ctx->count_crtcs; i++) {
+		struct my_plane *p = &ctx->planes[i];
+		struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
 
-		printf("setatomic ok\n");
-
-		printf("plane = %u, crtc = %u, fb = %u\n",
-		       p->base.plane_id, p->base.crtc->crtc_id, p->fb_id);
-
-		printf("src = %u.%06ux%u.%06u+%u.%06u+%u.%06u\n",
-		       src_w >> 16, ((src_w & 0xffff) * 15625) >> 10,
-		       src_h >> 16, ((src_h & 0xffff) * 15625) >> 10,
-		       p->src.x1 >> 16, ((p->src.x1 & 0xffff) * 15625) >> 10,
-		       p->src.y1 >> 16, ((p->src.y1 & 0xffff) * 15625) >> 10);
-
-		printf("dst = %ux%u+%d+%d\n",
-		       dst_w, dst_h, p->dst.x1, p->dst.y1);
+		p->dirty = false;
+		p->buf = NULL;
+		c->dirty = false;
+		c->dirty_mode = false;
+		c->dirty_cursor = false;
+		c->buf = NULL;
 	}
-
-	p->dirty = false;
-	c->dirty = false;
-	c->dirty_mode = false;
-	c->dirty_cursor = false;
 }
 
 static void tp_sub(struct timespec *tp, const struct timespec *tp2)
@@ -740,7 +757,7 @@ static bool my_surface_alloc(struct my_surface *s,
 	return true;
 }
 
-static void handle_crtc(int fd,
+static void handle_crtc(struct my_ctx *my_ctx,
 			struct gbm_device *gbm,
 			EGLDisplay dpy,
 			EGLContext ctx,
@@ -875,10 +892,10 @@ static void handle_crtc(int fd,
 
 	c->dirty_cursor = true;
 
-	plane_commit(fd, p);
+	plane_commit(my_ctx, p);
 }
 
-static bool animate_crtc(int fd,
+static bool animate_crtc(struct my_ctx *my_ctx,
 			 EGLDisplay dpy,
 			 EGLContext ctx,
 			 struct my_crtc *c, struct my_plane *p)
@@ -925,7 +942,7 @@ static bool animate_crtc(int fd,
 	render(dpy, ctx, &c->surf, false);
 	render(dpy, ctx, &p->surf, true);
 
-	plane_commit(fd, p);
+	plane_commit(my_ctx, p);
 
 	c->frames++;
 
@@ -952,6 +969,7 @@ static void usage(const char *name)
 
 int main(int argc, char *argv[])
 {
+	struct my_ctx my_ctx = {};
 	struct my_crtc c[8] = {
 		[0] = {
 		},
@@ -972,7 +990,7 @@ int main(int argc, char *argv[])
 		},
 	};
 	struct ctx uctx = {};
-
+	int fd;
 	bool enable = true;
 	bool quit = false;
 	int r;
@@ -1051,12 +1069,17 @@ int main(int argc, char *argv[])
 	if (!ctx)
 		return 9;
 
+	my_ctx.fd = fd;
+	my_ctx.planes = p;
+	my_ctx.count_crtcs = count_crtcs;
+
 	for (i = 0; i < count_crtcs; i++) {
 		populate_crtc_props(fd, &c[i]);
 		populate_plane_props(fd, &p[i]);
 		plane_enable(&p[i], enable);
-		handle_crtc(fd, gbm, dpy, ctx, modes[i], &c[i], &p[i]);
+		handle_crtc(&my_ctx, gbm, dpy, ctx, modes[i], &c[i], &p[i]);
 	}
+	commit_state(&my_ctx);
 
 	term_init();
 
@@ -1105,7 +1128,8 @@ int main(int argc, char *argv[])
 			 * free buffers, otherwise don't.
 			 */
 			for (i = 0; i < count_crtcs; i++)
-				no_sleep |= animate_crtc(fd, dpy, ctx, &c[i], &p[i]);
+				no_sleep |= animate_crtc(&my_ctx, dpy, ctx, &c[i], &p[i]);
+			commit_state(&my_ctx);
 
 			if (no_sleep)
 				t = &timeout;
@@ -1124,8 +1148,9 @@ int main(int argc, char *argv[])
 			for (i = 0; i < count_crtcs; i++) {
 				enable = !enable;
 				plane_enable(&p[i], enable);
-				plane_commit(fd, &p[i]);
+				plane_commit(&my_ctx, &p[i]);
 			}
+			commit_state(&my_ctx);
 			break;
 		case 'q':
 			quit = 1;
@@ -1139,8 +1164,9 @@ int main(int argc, char *argv[])
 				c[i].dirty = true;
 				render(dpy, ctx, &c[i].surf, false);
 				render(dpy, ctx, &p[i].surf, true);
-				plane_commit(fd, &p[i]);
+				plane_commit(&my_ctx, &p[i]);
 			}
+			commit_state(&my_ctx);
 			break;
 		case 'S':
 		case 'X':
@@ -1150,8 +1176,9 @@ int main(int argc, char *argv[])
 				c[i].dirty = true;
 				render(dpy, ctx, &c[i].surf, false);
 				render(dpy, ctx, &p[i].surf, true);
-				plane_commit(fd, &p[i]);
+				plane_commit(&my_ctx, &p[i]);
 			}
+			commit_state(&my_ctx);
 			break;
 		case 'z':
 		case 'c':
@@ -1162,8 +1189,9 @@ int main(int argc, char *argv[])
 				c[i].dirty = true;
 				render(dpy, ctx, &c[i].surf, false);
 				render(dpy, ctx, &p[i].surf, true);
-				plane_commit(fd, &p[i]);
+				plane_commit(&my_ctx, &p[i]);
 			}
+			commit_state(&my_ctx);
 			break;
 		case 'Z':
 		case 'C':
@@ -1173,8 +1201,9 @@ int main(int argc, char *argv[])
 				c[i].dirty = true;
 				render(dpy, ctx, &c[i].surf, false);
 				render(dpy, ctx, &p[i].surf, true);
-				plane_commit(fd, &p[i]);
+				plane_commit(&my_ctx, &p[i]);
 			}
+			commit_state(&my_ctx);
 			break;
 		case 't':
 			test_running = !test_running;
@@ -1201,11 +1230,12 @@ int main(int argc, char *argv[])
 		c[i].dirty_mode = true;
 
 		plane_enable(&p[i], false);
-		plane_commit(fd, &p[i]);
+		plane_commit(&my_ctx, &p[i]);
 
 		surface_free(&c[i].surf.base);
 		surface_free(&p[i].surf.base);
 	}
+	commit_state(&my_ctx);
 
 	gbm_device_destroy(gbm);
 
