@@ -67,6 +67,8 @@ static enum {
 	ANIM_COUNT,
 } anim_mode;
 
+static bool anim_clear;
+
 struct region {
 	int32_t x1;
 	int32_t y1;
@@ -680,8 +682,9 @@ static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool
 
 	if (col)
 		glClearColor(0.8, 0.4, 0.4, 0.0);
+	else
+		glClearColor(0.4, 0.4, 0.4, 0.0);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glClearColor(0.4, 0.4, 0.4, 0.0);
 
 	glPushMatrix();
 	glRotatef(surf->view_rotx, 1, 0, 0);
@@ -699,6 +702,17 @@ static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool
 	glDisableClientState(GL_COLOR_ARRAY);
 
 	glPopMatrix();
+}
+
+static void clear_rect(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf,
+		       int x, int y, int w, int h)
+{
+	glViewport(0, 0, (GLint) surf->base.width, (GLint) surf->base.height);
+	glScissor(x, surf->base.height - y - h, w, h);
+	glEnable(GL_SCISSOR_TEST);
+	glClearColor(0.0, 0.0, 0.0, 0.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glDisable(GL_SCISSOR_TEST);
 }
 
 static void swap_buffers(EGLDisplay dpy, struct my_surface *surf)
@@ -934,6 +948,8 @@ static bool animate_crtc(struct my_ctx *my_ctx,
 	c->dirty = true;
 
 	render(dpy, ctx, &c->surf, false);
+	if (anim_clear)
+		clear_rect(dpy, ctx, &c->surf, x, y, w, h);
 	swap_buffers(dpy, &c->surf);
 	render(dpy, ctx, &p->surf, true);
 	swap_buffers(dpy, &p->surf);
@@ -1223,6 +1239,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'a':
 			anim_mode = (anim_mode + 1) % ANIM_COUNT;
+			break;
+		case 'r':
+			anim_clear = !anim_clear;
 			break;
 		}
 	}
