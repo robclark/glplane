@@ -1260,8 +1260,11 @@ int main(int argc, char *argv[])
 	gl_fini();
 
 	for (i = 0; i < count_crtcs; i++) {
+#if 0
+		/* FIXME assert() failure in buffer ref count handling */
 		gl_surf_fini(dpy, &c[i].surf);
 		gl_surf_fini(dpy, &p[i].surf);
+#endif
 		surface_free(&c[i].surf.base);
 		surface_free(&p[i].surf.base);
 	}
