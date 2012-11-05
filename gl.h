@@ -11,6 +11,6 @@ void gl_surf_fini(EGLDisplay dpy, struct my_surface *s);
 
 void gl_surf_render(EGLDisplay dpy, EGLContext ctx,
 		    struct my_surface *surf,
-		    bool col, bool anim);
+		    bool col, bool anim, bool blur);
 
 #endif

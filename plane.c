@@ -163,6 +163,7 @@ struct my_ctx {
 };
 
 static bool throttle;
+static bool blur;
 
 static int get_free_buffer(struct my_surface *surf)
 {
@@ -639,7 +640,7 @@ static int adjust_h(struct my_plane *p)
 	return p->state.h;
 }
 
-static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool col)
+static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool col, bool blur)
 {
 	static const GLfloat verts[3][2] = {
 		{ -1, -1, },
@@ -696,7 +697,7 @@ static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool
 
 	glPopMatrix();
 #else
-	gl_surf_render(dpy, ctx, surf, col, true);
+	gl_surf_render(dpy, ctx, surf, col, true, blur);
 #endif
 }
 
@@ -757,7 +758,7 @@ static bool produce_frame(EGLDisplay dpy, EGLContext ctx, struct my_plane *p)
 	if (get_free_buffer(&c->surf) < 0 || get_free_buffer(&p->surf) < 0)
 		return false;
 
-	render(dpy, ctx, &c->surf, false);
+	render(dpy, ctx, &c->surf, false, blur);
 	if (anim_clear)
 		clear_rect(dpy, ctx, &c->surf,
 			   p->dst.x1,
@@ -765,7 +766,7 @@ static bool produce_frame(EGLDisplay dpy, EGLContext ctx, struct my_plane *p)
 			   p->dst.x2 - p->dst.x1,
 			   p->dst.y2 - p->dst.y1);
 	swap_buffers(dpy, &c->surf);
-	render(dpy, ctx, &p->surf, true);
+	render(dpy, ctx, &p->surf, true, blur);
 	swap_buffers(dpy, &p->surf);
 
 	return true;
@@ -1229,6 +1230,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'T':
 			throttle = !throttle;
+			break;
+		case 'b':
+			blur = !blur;
 			break;
 		case 'a':
 			anim_mode = (anim_mode + 1) % ANIM_COUNT;
