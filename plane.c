@@ -47,12 +47,11 @@
 #include <drm_fourcc.h>
 #include <gbm.h>
 
-#include <GL/gl.h>
-#include <EGL/egl.h>
-
 #include "utils.h"
 #include "gutils.h"
 #include "term.h"
+#include "common.h"
+#include "gl.h"
 
 //#define dprintf printf
 #define dprintf(x...) do {} while (0)
@@ -76,12 +75,6 @@ struct region {
 	int32_t y2;
 };
 
-struct my_surface {
-	struct surface base;
-	int pending_events;
-	EGLSurface egl_surface;
-	GLfloat view_rotx, view_roty, view_rotz;
-};
 
 struct my_crtc {
 	struct crtc base;
@@ -660,6 +653,7 @@ static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool
 	};
 	GLfloat ar = (GLfloat) surf->base.width / (GLfloat) surf->base.height;
 
+#if 0
 	if (col) {
 		surf->view_rotx += 0.25f;
 		surf->view_roty += 1.0f;
@@ -701,6 +695,9 @@ static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool
 	glDisableClientState(GL_COLOR_ARRAY);
 
 	glPopMatrix();
+#else
+	gl_surf_render(dpy, ctx, surf, col, true);
+#endif
 }
 
 static void clear_rect(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf,
@@ -716,8 +713,7 @@ static void clear_rect(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf,
 
 static void swap_buffers(EGLDisplay dpy, struct my_surface *surf)
 {
-	glFlush();
-
+	//glFlush();
 	eglSwapBuffers(dpy, surf->egl_surface);
 }
 
@@ -742,19 +738,14 @@ static bool my_surface_alloc(struct my_surface *s,
 	EGLint num_configs = 0;
 	EGLConfig config;
 
+	if (!eglChooseConfig(dpy, attribs, &config, 1, &num_configs) || num_configs != 1)
+		return false;
+
 	if (!surface_alloc(&s->base, gbm, fmt, w, h))
 		return false;
 
-	if (!eglChooseConfig(dpy, attribs, &config, 1, &num_configs) || num_configs != 1) {
-		memset(s, 0, sizeof *s);
+	if (!gl_surf_init(dpy, config, s))
 		return false;
-	}
-
-	s->egl_surface = eglCreateWindowSurface(dpy, config, s->base.gbm_surface, NULL);
-	if (s->egl_surface == EGL_NO_SURFACE) {
-		surface_free(&s->base);
-		return false;
-	}
 
 	return true;
 }
@@ -1088,6 +1079,10 @@ int main(int argc, char *argv[])
 	if (!ctx)
 		return 9;
 
+	eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx);
+
+	gl_init();
+
 	my_ctx.fd = fd;
 	my_ctx.planes = p;
 	my_ctx.count_crtcs = count_crtcs;
@@ -1254,10 +1249,25 @@ int main(int argc, char *argv[])
 		plane_enable(&p[i], false);
 		plane_commit(&my_ctx, &p[i]);
 
+	}
+	commit_state(&my_ctx);
+
+	glUseProgram(0);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx);
+
+	gl_fini();
+
+	for (i = 0; i < count_crtcs; i++) {
+		gl_surf_fini(dpy, &c[i].surf);
+		gl_surf_fini(dpy, &p[i].surf);
 		surface_free(&c[i].surf.base);
 		surface_free(&p[i].surf.base);
 	}
-	commit_state(&my_ctx);
+
+	eglDestroyContext(dpy, ctx);
+	eglTerminate(dpy);
 
 	gbm_device_destroy(gbm);
 

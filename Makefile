@@ -7,7 +7,7 @@ PROGS:=plane
 
 all: $(PROGS)
 
-plane: plane.o utils.o gutils.o term.o
+plane: plane.o utils.o gutils.o term.o gl.o
 
 clean:
 	rm -f $(PROGS) *.o
