@@ -488,11 +488,10 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 				      p->base.plane_id,
 				      p->prop.crtc_h,
 				      p->dst.y2 - p->dst.y1);
-		if (p->buf) {
-			dprintf("plane pending events %u -> %u\n",
-				p->surf.pending_events, p->surf.pending_events + 1);
-			p->surf.pending_events++;
-		}
+
+		dprintf("plane pending events %u -> %u\n",
+			p->surf.pending_events, p->surf.pending_events + 1);
+		p->surf.pending_events++;
 	}
 }
 
