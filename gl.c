@@ -327,6 +327,24 @@ static void render_blur(bool vert)
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
+void gl_surf_clear(EGLDisplay dpy, EGLContext ctx,
+		   struct my_surface *s,
+		   bool col)
+{
+	if (!eglMakeCurrent(dpy, s->egl_surface, s->egl_surface, ctx))
+		return;
+
+	glViewport(0, 0, (GLint) s->base.width, (GLint) s->base.height);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	if (col)
+		glClearColor(0.4f, 0.4f, 0.4f, 0.4f);
+	else
+		glClearColor(0.2f, 0.2f, 0.2f, 0.2f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+}
+
 void gl_surf_render(EGLDisplay dpy, EGLContext ctx,
 		    struct my_surface *s,
 		    bool col, bool anim, bool blur)
@@ -342,7 +360,7 @@ void gl_surf_render(EGLDisplay dpy, EGLContext ctx,
 	if (col)
 		glClearColor(0.4f, 0.4f, 0.4f, 0.4f);
 	else
-		glClearColor(0.2f, 0.2f, 0.2f, 0.0f);
+		glClearColor(0.2f, 0.2f, 0.2f, 0.2f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	render(s->rot);
 	if (anim)

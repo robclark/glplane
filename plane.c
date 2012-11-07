@@ -164,6 +164,7 @@ struct my_ctx {
 
 static bool throttle;
 static bool blur;
+static bool blank;
 
 static int get_free_buffer(struct my_surface *surf)
 {
@@ -697,7 +698,10 @@ static void render(EGLDisplay dpy, EGLContext ctx, struct my_surface *surf, bool
 
 	glPopMatrix();
 #else
-	gl_surf_render(dpy, ctx, surf, col, true, blur);
+	if (blank)
+		gl_surf_clear(dpy, ctx, surf, false);
+	else
+		gl_surf_render(dpy, ctx, surf, col, true, blur);
 #endif
 }
 
@@ -1233,6 +1237,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'b':
 			blur = !blur;
+			break;
+		case 'B':
+			blank = !blank;
 			break;
 		case 'a':
 			anim_mode = (anim_mode + 1) % ANIM_COUNT;
