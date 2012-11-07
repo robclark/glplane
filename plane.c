@@ -336,9 +336,6 @@ static void drmModePropertySetAddBlob2(drmModePropertySetPtr set, uint32_t obj_i
 #define drmModePropertySetAddBlob drmModePropertySetAddBlob2
 #endif
 
-static drmModePropertySetPtr set;
-static uint32_t flags;
-
 static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 {
 	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
