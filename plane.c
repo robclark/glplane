@@ -488,15 +488,31 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 	}
 }
 
+static void tp_sub(struct timespec *tp, const struct timespec *tp2)
+{
+	tp->tv_sec -= tp2->tv_sec;
+	tp->tv_nsec -= tp2->tv_nsec;
+	if (tp->tv_nsec < 0) {
+		tp->tv_nsec += 1000000000L;
+		tp->tv_sec--;
+	}
+}
+
 static void commit_state(struct my_ctx *ctx)
 {
+	struct timespec pre, post;
 	int i, r;
 
 	if (!ctx->set)
 		return;
 
+	clock_gettime(CLOCK_MONOTONIC, &pre);
 	//r = drmModePropertySetCommit(fd, DRM_MODE_ATOMIC_TEST_ONLY, set);
 	r = drmModePropertySetCommit(ctx->fd, ctx->flags, ctx, ctx->set);
+	clock_gettime(CLOCK_MONOTONIC, &post);
+	tp_sub(&post, &pre);
+
+	printf("commit took %lu secs, %lu nsecs\n", post.tv_sec, post.tv_nsec);
 
 	drmModePropertySetFree(ctx->set);
 	ctx->set = NULL;
@@ -564,16 +580,6 @@ static void commit_state(struct my_ctx *ctx)
 		c->dirty_mode = false;
 		c->dirty_cursor = false;
 		c->buf = NULL;
-	}
-}
-
-static void tp_sub(struct timespec *tp, const struct timespec *tp2)
-{
-	tp->tv_sec -= tp2->tv_sec;
-	tp->tv_nsec -= tp2->tv_nsec;
-	if (tp->tv_nsec < 0) {
-		tp->tv_nsec += 1000000000L;
-		tp->tv_sec--;
 	}
 }
 
