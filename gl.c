@@ -385,6 +385,7 @@ void gl_surf_render(EGLDisplay dpy, EGLContext ctx,
 		s->phase -= 2.0f * M_PI;
 
 	if (blur) {
+#if 0
 		glBindFramebuffer(GL_FRAMEBUFFER, s->fbo[0]);
 		glBindTexture(GL_TEXTURE_2D, s->tex[1]);
 		glUseProgram(blur_program);
@@ -398,6 +399,35 @@ void gl_surf_render(EGLDisplay dpy, EGLContext ctx,
 		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		render_blur(true);
+#else
+		glBindFramebuffer(GL_FRAMEBUFFER, s->fbo[0]);
+		glBindTexture(GL_TEXTURE_2D, s->tex[1]);
+		glUseProgram(blur_program);
+		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		render_blur(false);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, s->fbo[1]);
+		glBindTexture(GL_TEXTURE_2D, s->tex[0]);
+		glUseProgram(blur_program);
+		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		render_blur(true);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, s->fbo[0]);
+		glBindTexture(GL_TEXTURE_2D, s->tex[1]);
+		glUseProgram(blur_program);
+		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		render_blur(false);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glBindTexture(GL_TEXTURE_2D, s->tex[0]);
+		glUseProgram(blur_program);
+		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		render_blur(true);
+#endif
 	}
 }
 
