@@ -81,7 +81,6 @@ struct my_crtc {
 
 	bool dirty;
 	bool dirty_mode;
-	bool dirty_cursor;
 
 	unsigned int dispw;
 	unsigned int disph;
@@ -112,6 +111,12 @@ struct my_crtc {
 	} prop;
 
 	uint32_t connector_ids[8];
+
+	struct {
+		bool dirty;
+		uint32_t id;
+		struct bo bo;
+	} cursor;
 };
 
 struct my_plane {
@@ -341,7 +346,7 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 {
 	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
 
-	if (!p->dirty && !c->dirty && !c->dirty_mode)
+	if (!p->dirty && !c->dirty && !c->dirty_mode && !c->cursor.dirty)
 		return;
 
 	assert(c->buf == NULL);
@@ -363,8 +368,10 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 	if (p->dirty && p->enable) {
 		p->buf = surface_get_front(ctx->fd, &p->surf.base);
 		if (!p->buf) {
-			surface_buffer_put_fb(&c->surf.base, c->buf);
-			c->buf = NULL;
+			if (c->buf) {
+				surface_buffer_put_fb(&c->surf.base, c->buf);
+				c->buf = NULL;
+			}
 			return;
 		}
 	}
@@ -408,19 +415,19 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 		ctx->flags &= ~DRM_MODE_ATOMIC_NONBLOCK;
 	}
 
-	if (c->dirty_cursor) {
+	if (c->cursor.dirty) {
 		drmModePropertySetAdd(ctx->set,
 				      c->base.crtc_id,
 				      c->prop.cursor_id,
-				      0);
+				      c->cursor.id);
 		drmModePropertySetAdd(ctx->set,
 				      c->base.crtc_id,
 				      c->prop.cursor_x,
-				      0);
+				      c->dispw/2);
 		drmModePropertySetAdd(ctx->set,
 				      c->base.crtc_id,
 				      c->prop.cursor_y,
-				      0);
+				      c->disph/2);
 		drmModePropertySetAdd(ctx->set,
 				      c->base.crtc_id,
 				      c->prop.cursor_w,
@@ -578,7 +585,7 @@ static void commit_state(struct my_ctx *ctx)
 		p->buf = NULL;
 		c->dirty = false;
 		c->dirty_mode = false;
-		c->dirty_cursor = false;
+		c->cursor.dirty = false;
 		c->buf = NULL;
 	}
 }
@@ -904,9 +911,27 @@ static void handle_crtc(struct my_ctx *my_ctx,
 	if (!my_surface_alloc(&c->surf, gbm, DRM_FORMAT_XRGB8888, c->dispw, c->disph, dpy))
 		return;
 
+	{
+		uint32_t buf[64][64];
+		int i, j;
+
+		if (!bo_alloc(&c->cursor.bo, gbm, DRM_FORMAT_ARGB8888, 64, 64))
+			return;
+
+		for (i = 0; i < 64; i++) {
+			for (j = 0; j < 64; j++) {
+				uint32_t a = (j + i) & 255;
+				uint32_t p = (j * i) & 255;
+				buf[i][j] = (a << 24) | (p << 24) | (p << 16) | p;
+			}
+		}
+
+		gbm_bo_write(c->cursor.bo.bo, buf, sizeof buf);
+	}
+
 	c->dirty = true;
 	p->dirty = true;
-	c->dirty_cursor = true;
+	c->cursor.dirty = true;
 
 	if (produce_frame(dpy, ctx, p))
 		plane_commit(my_ctx, p);
@@ -1104,6 +1129,20 @@ int main(int argc, char *argv[])
 	}
 	commit_state(&my_ctx);
 
+	printf("pre\n");
+	for (i = 0; i < count_crtcs; i++) {
+		plane_enable(&p[i], !enable);
+		plane_enable(&p[i], enable);
+	}
+	commit_state(&my_ctx);
+	printf("mid\n");
+	for (i = 0; i < count_crtcs; i++) {
+		plane_enable(&p[i], !enable);
+		plane_enable(&p[i], enable);
+	}
+	commit_state(&my_ctx);
+	printf("post\n");
+
 	term_init();
 
 	srand(time(NULL));
@@ -1253,6 +1292,23 @@ int main(int argc, char *argv[])
 			break;
 		case 'r':
 			anim_clear = !anim_clear;
+			break;
+		case 'd':
+			for (i = 0; i < count_crtcs; i++) {
+				p[i].dirty = true;
+				c[i].dirty = true;
+				plane_commit(&my_ctx, &p[i]);
+			}
+			commit_state(&my_ctx);
+			break;
+		case 'u':
+			for (i = 0; i < count_crtcs; i++) {
+				c[i].cursor.id = c[i].cursor.id ? 0 : bo_handle(&c[i].cursor.bo);
+				printf("cursor to %u\n", c[i].cursor.id);
+				c[i].cursor.dirty = true;
+				plane_commit(&my_ctx, &p[i]);
+			}
+			commit_state(&my_ctx);
 			break;
 		}
 	}

@@ -138,6 +138,9 @@ bool surface_alloc(struct surface *s,
 	case DRM_FORMAT_XRGB8888:
 		gbm_fmt = GBM_FORMAT_XRGB8888;
 		break;
+	case DRM_FORMAT_ARGB8888:
+		gbm_fmt = GBM_FORMAT_ARGB8888;
+		break;
 	default:
 		return false;
 	}
@@ -155,4 +158,50 @@ bool surface_alloc(struct surface *s,
 	}
 
 	return true;
+}
+
+bool bo_alloc(struct bo *b,
+	      struct gbm_device *gbm,
+	      unsigned int fmt,
+	      unsigned int width,
+	      unsigned int height)
+{
+	uint32_t gbm_fmt;
+
+	switch (fmt) {
+	case DRM_FORMAT_XRGB8888:
+		gbm_fmt = GBM_FORMAT_XRGB8888;
+		break;
+	case DRM_FORMAT_ARGB8888:
+		gbm_fmt = GBM_FORMAT_ARGB8888;
+		break;
+	default:
+		return false;
+	}
+
+	memset(b, 0, sizeof *b);
+
+	b->bo = gbm_bo_create(gbm, 64, 64, GBM_FORMAT_ARGB8888, GBM_BO_USE_CURSOR_64X64 | GBM_BO_USE_WRITE);
+	if (!b->bo)
+		return false;
+
+	b->fmt = fmt;
+	b->width = width;
+	b->height = height;
+
+	return true;
+}
+
+void bo_free(struct bo *b)
+{
+	/* FIXME free bo */
+	memset(b, 0, sizeof *b);
+}
+
+uint32_t bo_handle(struct bo *b)
+{
+	if (!b->bo)
+		return 0;
+
+	return gbm_bo_get_handle(b->bo).u32;
 }

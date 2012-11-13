@@ -46,6 +46,13 @@ struct surface {
 	uint32_t fmt;
 };
 
+struct bo {
+	struct gbm_bo *bo;
+	unsigned int width;
+	unsigned int height;
+	uint32_t fmt;
+};
+
 struct gbm_device;
 struct gbm_surface;
 struct gbm_bo;
@@ -65,5 +72,14 @@ bool surface_alloc(struct surface *s,
 		   unsigned int fmt,
 		   unsigned int width,
 		   unsigned int height);
+
+
+bool bo_alloc(struct bo *bo,
+	      struct gbm_device *gbm,
+	      uint32_t fmt,
+	      uint32_t width,
+	      uint32_t height);
+void bo_free(struct bo *b);
+uint32_t bo_handle(struct bo *b);
 
 #endif
