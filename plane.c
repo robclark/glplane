@@ -787,7 +787,7 @@ static bool produce_frame(EGLDisplay dpy, EGLContext ctx, struct my_plane *p)
 	return true;
 }
 
-static void handle_crtc(struct my_ctx *my_ctx,
+static bool handle_crtc(struct my_ctx *my_ctx,
 			struct gbm_device *gbm,
 			EGLDisplay dpy,
 			EGLContext ctx,
@@ -795,7 +795,7 @@ static void handle_crtc(struct my_ctx *my_ctx,
 			struct my_crtc *c, struct my_plane *p)
 {
 	if (!pick_mode(&c->base, &c->mode, mode_name))
-		return;
+		return false;
 
 	c->dirty_mode = true;
 
@@ -885,7 +885,7 @@ static void handle_crtc(struct my_ctx *my_ctx,
 		c->mode.flags = 0x15;
 #endif
 		if (!pick_mode(&c->base, &c->mode, mode_name))
-			return;
+			return false;
 
 		c->dirty_mode = true;
 	}
@@ -896,7 +896,7 @@ static void handle_crtc(struct my_ctx *my_ctx,
 	c->disph = c->mode.vdisplay;
 
 	if (!my_surface_alloc(&p->surf, gbm, DRM_FORMAT_XRGB8888, 960, 576, dpy))
-		return;
+		return false;
 
 	p->src.x1 = 0 << 16;
 	p->src.y1 = 0 << 16;
@@ -909,14 +909,14 @@ static void handle_crtc(struct my_ctx *my_ctx,
 	p->dst.y2 = c->disph/2;
 
 	if (!my_surface_alloc(&c->surf, gbm, DRM_FORMAT_XRGB8888, c->dispw, c->disph, dpy))
-		return;
+		return false;
 
 	{
 		uint32_t buf[64][64];
 		int i, j;
 
 		if (!bo_alloc(&c->cursor.bo, gbm, DRM_FORMAT_ARGB8888, 64, 64))
-			return;
+			return false;
 
 		for (i = 0; i < 64; i++) {
 			for (j = 0; j < 64; j++) {
@@ -935,6 +935,8 @@ static void handle_crtc(struct my_ctx *my_ctx,
 
 	if (produce_frame(dpy, ctx, p))
 		plane_commit(my_ctx, p);
+
+	return true;
 }
 
 static bool animate_crtc(struct my_ctx *my_ctx,
@@ -1125,7 +1127,8 @@ int main(int argc, char *argv[])
 		populate_crtc_props(fd, &c[i]);
 		populate_plane_props(fd, &p[i]);
 		plane_enable(&p[i], enable);
-		handle_crtc(&my_ctx, gbm, dpy, ctx, modes[i], &c[i], &p[i]);
+		if (!handle_crtc(&my_ctx, gbm, dpy, ctx, modes[i], &c[i], &p[i]))
+			return 10;
 	}
 	commit_state(&my_ctx);
 
