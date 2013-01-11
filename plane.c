@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Intel Corporation
+ * Copyright (C) 2012-2013 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -90,6 +90,9 @@ struct my_crtc {
 
 	uint32_t original_fb_id;
 	uint32_t fb_id;
+#ifdef LEGACY_API
+	uint32_t old_fb_id;
+#endif
 
 	drmModeModeInfo original_mode;
 	drmModeModeInfo mode;
@@ -132,6 +135,9 @@ struct my_plane {
 
 	bool enable;
 	uint32_t fb_id;
+#ifdef LEGACY_API
+	uint32_t old_fb_id;
+#endif
 
 	struct {
 		uint32_t src_x;
@@ -163,8 +169,10 @@ struct my_ctx {
 	int fd;
 	int count_crtcs;
 	struct my_plane *planes;
+#ifndef LEGACY_API
 	drmModePropertySetPtr set;
 	uint32_t flags;
+#endif
 };
 
 static bool throttle;
@@ -352,12 +360,14 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 	assert(c->buf == NULL);
 	assert(p->buf == NULL);
 
+#ifndef LEGACY_API
 	if (!ctx->set) {
 		ctx->set = drmModePropertySetAlloc();
 		if (!ctx->set)
 			return;
 		ctx->flags = DRM_MODE_ATOMIC_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
 	}
+#endif
 
 	if (c->dirty) {
 		c->buf = surface_get_front(ctx->fd, &c->surf.base);
@@ -376,6 +386,7 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 		}
 	}
 
+#ifndef LEGACY_API
 	if (c->dirty) {
 		drmModePropertySetAdd(ctx->set,
 				      c->base.crtc_id,
@@ -493,6 +504,30 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 			p->surf.pending_events, p->surf.pending_events + 1);
 		p->surf.pending_events++;
 	}
+#else
+	if (c->dirty || c->dirty_mode) {
+		drmModeSetCrtc(ctx->fd, c->base.crtc_id, c->buf->fb_id,
+			       0, 0, &c->base.connector_id, 1, &c->mode);
+	}
+
+	if (c->cursor.dirty) {
+		drmModeSetCursor(ctx->fd, c->base.crtc_id, c->cursor.id, 64, 64);
+		drmModeMoveCursor(ctx->fd, c->base.crtc_id, c->dispw/2, c->disph/2);
+	}
+
+	if (p->dirty) {
+		drmModeSetPlane(ctx->fd, p->base.plane_id,
+				p->base.crtc->crtc_id,
+				p->buf ? p->buf->fb_id : 0,
+				0,
+				p->dst.x1, p->dst.y1,
+				p->dst.x2 - p->dst.x1,
+				p->dst.y2 - p->dst.y1,
+				p->src.x1, p->src.y1,
+				p->src.x2 - p->src.x1,
+				p->src.y2 - p->src.y1);
+	}
+#endif
 }
 
 static void tp_sub(struct timespec *tp, const struct timespec *tp2)
@@ -510,6 +545,7 @@ static void commit_state(struct my_ctx *ctx)
 	struct timespec pre, post;
 	int i, r;
 
+#ifndef LEGACY_API
 	if (!ctx->set)
 		return;
 
@@ -576,10 +612,28 @@ static void commit_state(struct my_ctx *ctx)
 		}
 		return;
 	}
+#endif
 
 	for (i = 0; i < ctx->count_crtcs; i++) {
 		struct my_plane *p = &ctx->planes[i];
 		struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
+
+#ifdef LEGACY_API
+		if (p->old_fb_id) {
+			struct buffer *buf = surface_find_buffer_by_fb_id(&p->surf.base, p->old_fb_id);
+			if (buf)
+				surface_buffer_put_fb(&p->surf.base, buf);
+		}
+
+		if (c->old_fb_id) {
+			struct buffer *buf = surface_find_buffer_by_fb_id(&c->surf.base, c->old_fb_id);
+			if (buf)
+				surface_buffer_put_fb(&c->surf.base, buf);
+		}
+
+		p->old_fb_id = p->buf ? p->buf->fb_id : 0;
+		c->old_fb_id = c->buf ? c->buf->fb_id : 0;
+#endif
 
 		p->dirty = false;
 		p->buf = NULL;
@@ -1044,7 +1098,9 @@ int main(int argc, char *argv[])
 	struct gbm_device *gbm;
 	drmEventContext evtctx = {
 		.version = DRM_EVENT_CONTEXT_VERSION,
+#ifndef LEGACY_API
 		.atomic_handler = atomic_event,
+#endif
 	};
 	EGLDisplay dpy;
 	EGLContext ctx;

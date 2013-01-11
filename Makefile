@@ -1,7 +1,7 @@
-CFLAGS:=-O0 -g3 $(shell pkg-config --cflags libdrm gbm gl egl)
-CPPFLAGS:=-Wall -Wextra
-LDFLAGS:=
-LDLIBS:=$(shell pkg-config --libs libdrm gbm gl egl) -lm
+CFLAGS+=-O0 -g3 $(shell pkg-config --cflags libdrm gbm gl egl)
+CPPFLAGS+=-Wall -Wextra
+LDFLAGS+=
+LDLIBS+=$(shell pkg-config --libs libdrm gbm gl egl) -lm
 
 PROGS:=plane
 
