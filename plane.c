@@ -353,6 +353,7 @@ static void drmModePropertySetAddBlob2(drmModePropertySetPtr set, uint32_t obj_i
 static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 {
 	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
+	int r;
 
 	if (!p->dirty && !c->dirty && !c->dirty_mode && !c->cursor.dirty)
 		return;
@@ -506,17 +507,23 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 	}
 #else
 	if (c->dirty || c->dirty_mode) {
-		drmModeSetCrtc(ctx->fd, c->base.crtc_id, c->buf->fb_id,
-			       0, 0, &c->base.connector_id, 1, &c->mode);
+		r = drmModeSetCrtc(ctx->fd, c->base.crtc_id, c->buf->fb_id,
+				   0, 0, &c->base.connector_id, 1, &c->mode);
+		if (r)
+			printf("drmModeSetCrtc() failed %d:%s\n", errno, strerror(errno));
 	}
 
 	if (c->cursor.dirty) {
-		drmModeSetCursor(ctx->fd, c->base.crtc_id, c->cursor.id, 64, 64);
-		drmModeMoveCursor(ctx->fd, c->base.crtc_id, c->dispw/2, c->disph/2);
+		r = drmModeSetCursor(ctx->fd, c->base.crtc_id, c->cursor.id, 64, 64);
+		if (r)
+			printf("drmModeSetCursor() failed %d:%s\n", errno, strerror(errno));
+		r = drmModeMoveCursor(ctx->fd, c->base.crtc_id, c->dispw/2, c->disph/2);
+		if (r)
+			printf("drmModeMoveCursor() failed %d:%s\n", errno, strerror(errno));
 	}
 
 	if (p->dirty) {
-		drmModeSetPlane(ctx->fd, p->base.plane_id,
+		r = drmModeSetPlane(ctx->fd, p->base.plane_id,
 				p->base.crtc->crtc_id,
 				p->buf ? p->buf->fb_id : 0,
 				0,
@@ -526,6 +533,8 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 				p->src.x1, p->src.y1,
 				p->src.x2 - p->src.x1,
 				p->src.y2 - p->src.y1);
+		if (r)
+			printf("drmModeSetPlane() failed %d:%s\n", errno, strerror(errno));
 	}
 #endif
 }
