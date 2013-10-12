@@ -1,5 +1,5 @@
 CFLAGS+=-O0 -g3 $(shell pkg-config --cflags libdrm gbm gl egl)
-CPPFLAGS+=-Wall -Wextra
+CPPFLAGS+=-Wall
 LDFLAGS+=
 LDLIBS+=$(shell pkg-config --libs libdrm gbm gl egl) -lm
 

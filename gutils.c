@@ -38,23 +38,23 @@ bool surface_has_free_buffers(struct surface *s)
 	return gbm_surface_has_free_buffers(s->gbm_surface);
 }
 
-struct buffer *surface_find_buffer_by_fb_id(struct surface *s, uint32_t fb_id)
+void surface_retire_buffers(struct surface *s, int fence)
 {
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(s->buffers); i++) {
-		if (s->buffers[i].fb_id == fb_id) {
-			assert(s->buffers[i].ref >= 0);
-			return &s->buffers[i];
+		struct buffer *b = &s->buffers[i];
+		if (b->bo && b->fence && (b->fence < fence)) {
+			surface_buffer_put_fb(s, b);
 		}
 	}
 
-	return NULL;
 }
 
 void surface_buffer_put_fb(struct surface *s, struct buffer *b)
 {
 	b->ref--;
+	b->fence = 0;
 	gbm_surface_release_buffer(s->gbm_surface, b->bo);
 }
 
@@ -86,7 +86,7 @@ struct buffer *surface_get_front(int fd, struct surface *s)
 	}
 
 	for (i = 0; i < ARRAY_SIZE(s->buffers); i++) {
-		if (s->buffers[i].ref == 0) {
+		if (!s->buffers[i].bo) {
 			b = &s->buffers[i];
 			break;
 		}

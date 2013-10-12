@@ -32,7 +32,6 @@
 
 struct my_surface {
 	struct surface base;
-	int pending_events;
 	EGLSurface egl_surface;
 	GLuint fbo[2];
 	GLuint tex[2];

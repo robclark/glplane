@@ -29,6 +29,7 @@
 
 struct buffer {
 	int fd;
+	int fence;
 	unsigned int size;
 	uint32_t offset[4];
 	uint32_t stride[4];
@@ -59,7 +60,7 @@ struct gbm_bo;
 
 bool surface_has_free_buffers(struct surface *s);
 
-struct buffer *surface_find_buffer_by_fb_id(struct surface *s, uint32_t fb_id);
+void surface_retire_buffers(struct surface *s, int fence);
 
 void surface_buffer_put_fb(struct surface *s, struct buffer *b);
 

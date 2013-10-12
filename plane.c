@@ -53,8 +53,8 @@
 #include "common.h"
 #include "gl.h"
 
-//#define dprintf printf
-#define dprintf(x...) do {} while (0)
+#define dprintf printf
+//#define dprintf(x...) do {} while (0)
 
 #define min(a,b) ((a) < (b) ? (a) : (b))
 #define max(a,b) ((a) > (b) ? (a) : (b))
@@ -106,20 +106,9 @@ struct my_crtc {
 		uint32_t fb;
 		uint32_t mode;
 		uint32_t connector_ids;
-		uint32_t cursor_id;
-		uint32_t cursor_x;
-		uint32_t cursor_y;
-		uint32_t cursor_w;
-		uint32_t cursor_h;
 	} prop;
 
 	uint32_t connector_ids[8];
-
-	struct {
-		bool dirty;
-		uint32_t id;
-		struct bo bo;
-	} cursor;
 };
 
 struct my_plane {
@@ -179,10 +168,11 @@ static bool throttle;
 static bool blur;
 static bool blank;
 static bool render = true;
+static int next_fence = 1, last_fence = 0, completed_fence = 0;
 
 static int get_free_buffer(struct my_surface *surf)
 {
-	if (throttle && surf->pending_events > 0)
+	if (throttle && (last_fence > completed_fence))
 		return -1;
 	if (surface_has_free_buffers(&surf->base))
 		return 0;
@@ -228,16 +218,6 @@ static void populate_crtc_props(int fd, struct my_crtc *c)
 			c->prop.mode = prop->prop_id;
 		else if (!strcmp(prop->name, "CONNECTOR_IDS"))
 			c->prop.connector_ids = prop->prop_id;
-		else if (!strcmp(prop->name, "CURSOR_ID"))
-			c->prop.cursor_id = prop->prop_id;
-		else if (!strcmp(prop->name, "CURSOR_X"))
-			c->prop.cursor_x = prop->prop_id;
-		else if (!strcmp(prop->name, "CURSOR_Y"))
-			c->prop.cursor_y = prop->prop_id;
-		else if (!strcmp(prop->name, "CURSOR_W"))
-			c->prop.cursor_w = prop->prop_id;
-		else if (!strcmp(prop->name, "CURSOR_H"))
-			c->prop.cursor_h = prop->prop_id;
 
 		drmModeFreeProperty(prop);
 	}
@@ -290,45 +270,22 @@ static void populate_plane_props(int fd, struct my_plane *p)
 	drmModeFreeObjectProperties(props);
 }
 
-static void atomic_event(int fd, unsigned int seq, unsigned int tv_sec, unsigned int tv_usec,
-			 uint32_t obj_id, uint32_t old_fb_id, void *user_data)
+
+static void page_flip_event(int fd, unsigned int seq, unsigned int tv_sec, unsigned int tv_usec,
+		void *user_data)
 {
 	struct my_ctx *ctx = user_data;
 	int i;
 
+	completed_fence++;
+	dprintf("complete: %d/%d\n", completed_fence, last_fence);
+
 	for (i = 0; i < ctx->count_crtcs; i++) {
 		struct my_plane *p = &ctx->planes[i];
 		struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
-		struct buffer *buf;
 
-		dprintf("event: obj=%u old_fb=%u\n", obj_id, old_fb_id);
-
-		if (obj_id == p->base.plane_id) {
-			dprintf("plane pending events %u -> %u\n",
-				p->surf.pending_events, p->surf.pending_events - 1);
-			p->surf.pending_events--;
-		} else if (obj_id == c->base.crtc_id) {
-			dprintf("crtc pending events %u -> %u\n",
-				c->surf.pending_events, c->surf.pending_events - 1);
-			c->surf.pending_events--;
-		} else
-			continue;
-
-		if (old_fb_id) {
-			if (obj_id == p->base.plane_id) {
-				buf = surface_find_buffer_by_fb_id(&p->surf.base, old_fb_id);
-				if (buf)
-					surface_buffer_put_fb(&p->surf.base, buf);
-			} else if (obj_id == c->base.crtc_id) {
-				buf = surface_find_buffer_by_fb_id(&c->surf.base, old_fb_id);
-				if (buf)
-					surface_buffer_put_fb(&c->surf.base, buf);
-			} else
-				dprintf("EVENT for unknown obj %u\n", obj_id);
-		} else
-			dprintf("EVENT w/o old_fb_id\n");
-
-		break;
+		surface_retire_buffers(&p->surf.base, completed_fence);
+		surface_retire_buffers(&c->surf.base, completed_fence);
 	}
 }
 
@@ -355,7 +312,7 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
 	int r;
 
-	if (!p->dirty && !c->dirty && !c->dirty_mode && !c->cursor.dirty)
+	if (!p->dirty && !c->dirty && !c->dirty_mode)
 		return;
 
 	assert(c->buf == NULL);
@@ -366,7 +323,7 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 		ctx->set = drmModePropertySetAlloc();
 		if (!ctx->set)
 			return;
-		ctx->flags = DRM_MODE_ATOMIC_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
+		ctx->flags = DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
 	}
 #endif
 
@@ -374,6 +331,7 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 		c->buf = surface_get_front(ctx->fd, &c->surf.base);
 		if (!c->buf)
 			return;
+		c->buf->fence = next_fence;
 	}
 
 	if (p->dirty && p->enable) {
@@ -385,6 +343,7 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 			}
 			return;
 		}
+		p->buf->fence = next_fence;
 	}
 
 #ifndef LEGACY_API
@@ -403,10 +362,6 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 				      c->base.crtc_id,
 				      c->prop.src_y,
 				      0);
-
-		dprintf("crtc pending events %u -> %u\n",
-			c->surf.pending_events, c->surf.pending_events + 1);
-		c->surf.pending_events++;
 	}
 
 	if (c->dirty_mode) {
@@ -425,29 +380,6 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 
 		/* don't try nonblocking modectx->set, the kernel will reject it. */
 		ctx->flags &= ~DRM_MODE_ATOMIC_NONBLOCK;
-	}
-
-	if (c->cursor.dirty) {
-		drmModePropertySetAdd(ctx->set,
-				      c->base.crtc_id,
-				      c->prop.cursor_id,
-				      c->cursor.id);
-		drmModePropertySetAdd(ctx->set,
-				      c->base.crtc_id,
-				      c->prop.cursor_x,
-				      c->dispw/2);
-		drmModePropertySetAdd(ctx->set,
-				      c->base.crtc_id,
-				      c->prop.cursor_y,
-				      c->disph/2);
-		drmModePropertySetAdd(ctx->set,
-				      c->base.crtc_id,
-				      c->prop.cursor_w,
-				      64);
-		drmModePropertySetAdd(ctx->set,
-				      c->base.crtc_id,
-				      c->prop.cursor_h,
-				      64);
 	}
 
 	if (p->dirty) {
@@ -500,26 +432,14 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 				      p->base.plane_id,
 				      p->prop.crtc_h,
 				      p->dst.y2 - p->dst.y1);
-
-		dprintf("plane pending events %u -> %u\n",
-			p->surf.pending_events, p->surf.pending_events + 1);
-		p->surf.pending_events++;
 	}
+
 #else
 	if (c->dirty || c->dirty_mode) {
 		r = drmModeSetCrtc(ctx->fd, c->base.crtc_id, c->buf->fb_id,
 				   0, 0, &c->base.connector_id, 1, &c->mode);
 		if (r)
 			printf("drmModeSetCrtc() failed %d:%s\n", errno, strerror(errno));
-	}
-
-	if (c->cursor.dirty) {
-		r = drmModeSetCursor(ctx->fd, c->base.crtc_id, c->cursor.id, 64, 64);
-		if (r)
-			printf("drmModeSetCursor() failed %d:%s\n", errno, strerror(errno));
-		r = drmModeMoveCursor(ctx->fd, c->base.crtc_id, c->dispw/2, c->disph/2);
-		if (r)
-			printf("drmModeMoveCursor() failed %d:%s\n", errno, strerror(errno));
 	}
 
 	if (p->dirty) {
@@ -557,6 +477,10 @@ static void commit_state(struct my_ctx *ctx)
 #ifndef LEGACY_API
 	if (!ctx->set)
 		return;
+
+	dprintf("kick: %d/%d\n", completed_fence, next_fence);
+	last_fence = next_fence;
+	next_fence++;
 
 	clock_gettime(CLOCK_MONOTONIC, &pre);
 	//r = drmModePropertySetCommit(fd, DRM_MODE_ATOMIC_TEST_ONLY, set);
@@ -606,18 +530,13 @@ static void commit_state(struct my_ctx *ctx)
 
 			if (p->buf) {
 				surface_buffer_put_fb(&p->surf.base, p->buf);
-				dprintf("plane pending events %u -> %u\n",
-					p->surf.pending_events, p->surf.pending_events - 1);
-				p->surf.pending_events--;
 				p->buf = NULL;
 			}
 			if (c->buf) {
 				surface_buffer_put_fb(&c->surf.base, c->buf);
-				dprintf("crtc pending events %u -> %u\n",
-					c->surf.pending_events, c->surf.pending_events - 1);
-				c->surf.pending_events--;
 				c->buf = NULL;
 			}
+			next_fence--;
 		}
 		return;
 	}
@@ -648,7 +567,6 @@ static void commit_state(struct my_ctx *ctx)
 		p->buf = NULL;
 		c->dirty = false;
 		c->dirty_mode = false;
-		c->cursor.dirty = false;
 		c->buf = NULL;
 	}
 }
@@ -958,7 +876,7 @@ static bool handle_crtc(struct my_ctx *my_ctx,
 	c->dispw = c->mode.hdisplay;
 	c->disph = c->mode.vdisplay;
 
-	if (!my_surface_alloc(&p->surf, gbm, DRM_FORMAT_XRGB8888, 960, 576, dpy))
+	if (!my_surface_alloc(&p->surf, gbm, DRM_FORMAT_XRGB8888, 512, 512, dpy))
 		return false;
 
 	p->src.x1 = 0 << 16;
@@ -974,27 +892,8 @@ static bool handle_crtc(struct my_ctx *my_ctx,
 	if (!my_surface_alloc(&c->surf, gbm, DRM_FORMAT_XRGB8888, c->dispw, c->disph, dpy))
 		return false;
 
-	{
-		uint32_t buf[64][64];
-		int i, j;
-
-		if (!bo_alloc(&c->cursor.bo, gbm, DRM_FORMAT_ARGB8888, 64, 64))
-			return false;
-
-		for (i = 0; i < 64; i++) {
-			for (j = 0; j < 64; j++) {
-				uint32_t a = (j + i) & 255;
-				uint32_t p = (j * i) & 255;
-				buf[i][j] = (a << 24) | (p << 24) | (p << 16) | p;
-			}
-		}
-
-		gbm_bo_write(c->cursor.bo.bo, buf, sizeof buf);
-	}
-
 	c->dirty = true;
 	p->dirty = true;
-	c->cursor.dirty = true;
 
 	if (produce_frame(dpy, ctx, p))
 		plane_commit(my_ctx, p);
@@ -1100,7 +999,7 @@ int main(int argc, char *argv[])
 	};
 	struct ctx uctx = {};
 	int fd;
-	bool enable = true;
+	bool enable = false;
 	bool quit = false;
 	int r;
 	int i;
@@ -1108,7 +1007,7 @@ int main(int argc, char *argv[])
 	drmEventContext evtctx = {
 		.version = DRM_EVENT_CONTEXT_VERSION,
 #ifndef LEGACY_API
-		.atomic_handler = atomic_event,
+		.page_flip_handler = page_flip_event,
 #endif
 	};
 	EGLDisplay dpy;
@@ -1124,7 +1023,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	fd = drmOpen("i915", NULL);
+	fd = drmOpen("msm", NULL);
 	if (fd < 0)
 		return 2;
 
@@ -1196,20 +1095,6 @@ int main(int argc, char *argv[])
 			return 10;
 	}
 	commit_state(&my_ctx);
-
-	printf("pre\n");
-	for (i = 0; i < count_crtcs; i++) {
-		plane_enable(&p[i], !enable);
-		plane_enable(&p[i], enable);
-	}
-	commit_state(&my_ctx);
-	printf("mid\n");
-	for (i = 0; i < count_crtcs; i++) {
-		plane_enable(&p[i], !enable);
-		plane_enable(&p[i], enable);
-	}
-	commit_state(&my_ctx);
-	printf("post\n");
 
 	term_init();
 
@@ -1334,6 +1219,10 @@ int main(int argc, char *argv[])
 			break;
 		case 't':
 			test_running = !test_running;
+			/* without throttle it will try to flip faster
+			 * than vsync.. which really just won't work:
+			 */
+			throttle |= true;
 			t = &timeout;
 			if (test_running) {
 				clock_gettime(CLOCK_MONOTONIC, &prev);
@@ -1365,15 +1254,6 @@ int main(int argc, char *argv[])
 			for (i = 0; i < count_crtcs; i++) {
 				p[i].dirty = true;
 				c[i].dirty = true;
-				plane_commit(&my_ctx, &p[i]);
-			}
-			commit_state(&my_ctx);
-			break;
-		case 'u':
-			for (i = 0; i < count_crtcs; i++) {
-				c[i].cursor.id = c[i].cursor.id ? 0 : bo_handle(&c[i].cursor.bo);
-				printf("cursor to %u\n", c[i].cursor.id);
-				c[i].cursor.dirty = true;
 				plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
