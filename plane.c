@@ -885,9 +885,9 @@ static bool handle_crtc(struct my_ctx *my_ctx,
 	p->src.y2 = p->surf.base.height << 16;
 
 	p->dst.x1 = 0;
-	p->dst.x2 = c->dispw/2;
 	p->dst.y1 = 0;
-	p->dst.y2 = c->disph/2;
+	p->dst.x2 = p->surf.base.width;
+	p->dst.y2 = p->surf.base.height;
 
 	if (!my_surface_alloc(&c->surf, gbm, DRM_FORMAT_XRGB8888, c->dispw, c->disph, dpy))
 		return false;
@@ -942,6 +942,14 @@ static bool animate_crtc(struct my_ctx *my_ctx,
 		y = p->dst.y1;
 		break;
 	}
+
+	/* no scaling: */
+	w = p->surf.base.width;
+	h= p->surf.base.height;
+
+	/* don't go off screen: */
+	x = min(x, c->surf.base.width - w);
+	y = min(y, c->surf.base.height - h);
 
 	p->dst.x1 = x;
 	p->dst.y1 = y;
