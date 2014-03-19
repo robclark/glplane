@@ -70,7 +70,7 @@ void init_plane(struct plane *p, struct crtc *c, struct ctx *ctx);
 bool pick_connector(struct crtc *c, const char *name);
 bool pick_encoder(struct crtc *c);
 bool pick_crtc(struct crtc *c);
-bool pick_plane(struct plane *p);
+bool pick_plane(struct plane *p, int crtcid);
 
 void release_connector(struct crtc *c);
 void release_encoder(struct crtc *c);

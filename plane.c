@@ -64,7 +64,7 @@ static enum {
 	ANIM_RAND,
 	ANIM_STATIC,
 	ANIM_COUNT,
-} anim_mode;
+} anim_mode = ANIM_RAND;
 
 static bool anim_clear;
 
@@ -75,24 +75,15 @@ struct region {
 	int32_t y2;
 };
 
+struct my_plane;
 
 struct my_crtc {
 	struct crtc base;
 
-	bool dirty;
 	bool dirty_mode;
 
 	unsigned int dispw;
 	unsigned int disph;
-
-	struct my_surface surf;
-	struct buffer *buf;
-
-	uint32_t original_fb_id;
-	uint32_t fb_id;
-#ifdef LEGACY_API
-	uint32_t old_fb_id;
-#endif
 
 	drmModeModeInfo original_mode;
 	drmModeModeInfo mode;
@@ -101,14 +92,13 @@ struct my_crtc {
 	struct timespec prev;
 
 	struct {
-		uint32_t src_x;
-		uint32_t src_y;
-		uint32_t fb;
 		uint32_t mode;
 		uint32_t connector_ids;
 	} prop;
 
 	uint32_t connector_ids[8];
+
+	struct my_plane *primary;
 };
 
 struct my_plane {
@@ -208,13 +198,7 @@ static void populate_crtc_props(int fd, struct my_crtc *c)
 
 		printf("crtc prop %s %u\n", prop->name, prop->prop_id);
 
-		if (!strcmp(prop->name, "SRC_X"))
-			c->prop.src_x = prop->prop_id;
-		else if (!strcmp(prop->name, "SRC_Y"))
-			c->prop.src_y = prop->prop_id;
-		else if (!strcmp(prop->name, "FB_ID"))
-			c->prop.fb = prop->prop_id;
-		else if (!strcmp(prop->name, "MODE"))
+		if (!strcmp(prop->name, "MODE"))
 			c->prop.mode = prop->prop_id;
 		else if (!strcmp(prop->name, "CONNECTOR_IDS"))
 			c->prop.connector_ids = prop->prop_id;
@@ -285,7 +269,7 @@ static void page_flip_event(int fd, unsigned int seq, unsigned int tv_sec, unsig
 		struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
 
 		surface_retire_buffers(&p->surf.base, completed_fence);
-		surface_retire_buffers(&c->surf.base, completed_fence);
+		surface_retire_buffers(&c->primary->surf.base, completed_fence);
 	}
 }
 
@@ -312,10 +296,12 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
 	int r;
 
-	if (!p->dirty && !c->dirty && !c->dirty_mode)
+	if (!p->dirty && !c->primary->dirty && !c->dirty_mode)
 		return;
 
-	assert(c->buf == NULL);
+	if (c->primary != p)
+		plane_commit(ctx, c->primary);
+
 	assert(p->buf == NULL);
 
 #ifndef LEGACY_API
@@ -327,19 +313,12 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 	}
 #endif
 
-	if (c->dirty) {
-		c->buf = surface_get_front(ctx->fd, &c->surf.base);
-		if (!c->buf)
-			return;
-		c->buf->fence = next_fence;
-	}
-
 	if (p->dirty && p->enable) {
 		p->buf = surface_get_front(ctx->fd, &p->surf.base);
 		if (!p->buf) {
-			if (c->buf) {
-				surface_buffer_put_fb(&c->surf.base, c->buf);
-				c->buf = NULL;
+			if (c->primary->buf) {
+				surface_buffer_put_fb(&c->primary->surf.base, c->primary->buf);
+				c->primary->buf = NULL;
 			}
 			return;
 		}
@@ -347,23 +326,6 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 	}
 
 #ifndef LEGACY_API
-	if (c->dirty) {
-		drmModePropertySetAdd(ctx->set,
-				      c->base.crtc_id,
-				      c->prop.fb,
-				      c->buf->fb_id);
-
-		drmModePropertySetAdd(ctx->set,
-				      c->base.crtc_id,
-				      c->prop.src_x,
-				      0);
-
-		drmModePropertySetAdd(ctx->set,
-				      c->base.crtc_id,
-				      c->prop.src_y,
-				      0);
-	}
-
 	if (c->dirty_mode) {
 		drmModePropertySetAddBlob(ctx->set,
 					  c->base.crtc_id,
@@ -519,8 +481,9 @@ static void commit_state(struct my_ctx *ctx)
 				       dst_w, dst_h, p->dst.x1, p->dst.y1);
 			}
 
-			if (c->dirty)
-				printf("crtc = %u, fb = %u\n", c->base.crtc_id, c->buf ? c->buf->fb_id : 0);
+			if (c->primary->dirty)
+				printf("crtc = %u, fb = %u\n", c->base.crtc_id,
+						c->primary->buf ? c->primary->buf->fb_id : 0);
 
 			if (c->dirty_mode) {
 				print_mode("mode", &c->mode);
@@ -532,9 +495,9 @@ static void commit_state(struct my_ctx *ctx)
 				surface_buffer_put_fb(&p->surf.base, p->buf);
 				p->buf = NULL;
 			}
-			if (c->buf) {
-				surface_buffer_put_fb(&c->surf.base, c->buf);
-				c->buf = NULL;
+			if (c->primary->buf) {
+				surface_buffer_put_fb(&c->primary->surf.base, c->primary->buf);
+				c->primary->buf = NULL;
 			}
 			next_fence--;
 		}
@@ -565,9 +528,9 @@ static void commit_state(struct my_ctx *ctx)
 
 		p->dirty = false;
 		p->buf = NULL;
-		c->dirty = false;
+		c->primary->dirty = false;
 		c->dirty_mode = false;
-		c->buf = NULL;
+		c->primary->buf = NULL;
 	}
 }
 
@@ -751,17 +714,17 @@ static bool produce_frame(EGLDisplay dpy, EGLContext ctx, struct my_plane *p)
 {
 	struct my_crtc *c = container_of(p->base.crtc, struct my_crtc, base);
 
-	if (get_free_buffer(&c->surf) < 0 || get_free_buffer(&p->surf) < 0)
+	if (get_free_buffer(&c->primary->surf) < 0 || get_free_buffer(&p->surf) < 0)
 		return false;
 
-	do_render(dpy, ctx, &c->surf, false, blur);
+	do_render(dpy, ctx, &c->primary->surf, false, blur);
 	if (anim_clear)
-		clear_rect(dpy, ctx, &c->surf,
+		clear_rect(dpy, ctx, &c->primary->surf,
 			   p->dst.x1,
 			   p->dst.y1,
 			   p->dst.x2 - p->dst.x1,
 			   p->dst.y2 - p->dst.y1);
-	swap_buffers(dpy, &c->surf);
+	swap_buffers(dpy, &c->primary->surf);
 	do_render(dpy, ctx, &p->surf, true, blur);
 	swap_buffers(dpy, &p->surf);
 
@@ -872,6 +835,16 @@ static bool handle_crtc(struct my_ctx *my_ctx,
 	}
 	printf("orig mode = %s, mode = %s\n", c->original_mode.name, c->mode.name);
 
+	c->primary->dirty = true;
+	c->primary->src.x1 = 0 << 16;
+	c->primary->src.y1 = 0 << 16;
+	c->primary->src.x2 = c->mode.hdisplay << 16;
+	c->primary->src.y2 = c->mode.vdisplay << 16;
+	c->primary->dst.x1 = 0;
+	c->primary->dst.y1 = 0;
+	c->primary->dst.x2 = c->mode.hdisplay;
+	c->primary->dst.y2 = c->mode.vdisplay;
+
 	/* FIXME need to dig out the mode struct for c->mode_id instead */
 	c->dispw = c->mode.hdisplay;
 	c->disph = c->mode.vdisplay;
@@ -889,10 +862,11 @@ static bool handle_crtc(struct my_ctx *my_ctx,
 	p->dst.x2 = p->surf.base.width;
 	p->dst.y2 = p->surf.base.height;
 
-	if (!my_surface_alloc(&c->surf, gbm, DRM_FORMAT_XRGB8888, c->dispw, c->disph, dpy))
+	if (!my_surface_alloc(&c->primary->surf, gbm,
+			DRM_FORMAT_XRGB8888, c->dispw, c->disph, dpy))
 		return false;
 
-	c->dirty = true;
+	c->primary->dirty = true;
 	p->dirty = true;
 
 	if (produce_frame(dpy, ctx, p))
@@ -908,7 +882,8 @@ static bool animate_crtc(struct my_ctx *my_ctx,
 {
 	int w, h, x, y;
 
-	if (get_free_buffer(&c->surf) < 0 || get_free_buffer(&p->surf) < 0)
+	if (get_free_buffer(&c->primary->surf) < 0 ||
+			get_free_buffer(&p->surf) < 0)
 		return false;
 
 	switch (anim_mode) {
@@ -948,8 +923,8 @@ static bool animate_crtc(struct my_ctx *my_ctx,
 	h= p->surf.base.height;
 
 	/* don't go off screen: */
-	x = min(x, c->surf.base.width - w);
-	y = min(y, c->surf.base.height - h);
+	x = min(x, c->primary->surf.base.width - w);
+	y = min(y, c->primary->surf.base.height - h);
 
 	p->dst.x1 = x;
 	p->dst.y1 = y;
@@ -957,7 +932,7 @@ static bool animate_crtc(struct my_ctx *my_ctx,
 	p->dst.y2 = p->dst.y1 + h;
 	p->dirty = true;
 
-	c->dirty = true;
+	c->primary->dirty = true;
 
 	produce_frame(dpy, ctx, p);
 	plane_commit(my_ctx, p);
@@ -1005,9 +980,13 @@ int main(int argc, char *argv[])
 			},
 		},
 	};
+	struct my_plane primary[8] = {
+			[0] = {
+			},
+	};
 	struct ctx uctx = {};
 	int fd;
-	bool enable = false;
+	bool enable = true;
 	bool quit = false;
 	int r;
 	int i;
@@ -1035,6 +1014,9 @@ int main(int argc, char *argv[])
 	if (fd < 0)
 		return 2;
 
+	/* request universal planes: */
+	drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
+
 	if (!init_ctx(&uctx, fd))
 		return 3;
 
@@ -1042,20 +1024,25 @@ int main(int argc, char *argv[])
 		if (count_crtcs) {
 			c[count_crtcs] = c[0];
 			p[count_crtcs] = p[0];
+			primary[count_crtcs] = primary[0];
 		}
 
 		init_crtc(&c[count_crtcs].base, &uctx);
 		init_plane(&p[count_crtcs].base, &c[count_crtcs].base, &uctx);
+		init_plane(&primary[count_crtcs].base, &c[count_crtcs].base, &uctx);
 
 		if (pick_connector(&c[count_crtcs].base, argv[i + 1]) &&
 		    pick_encoder(&c[count_crtcs].base) &&
 		    pick_crtc(&c[count_crtcs].base) &&
-		    pick_plane(&p[count_crtcs].base)) {
+		    pick_plane(&p[count_crtcs].base, -1) &&
+		    pick_plane(&primary[count_crtcs].base, count_crtcs)) {
 			modes[count_crtcs] = argv[i + 2];
+			c[count_crtcs].primary = &primary[count_crtcs];
 			count_crtcs++;
 			continue;
 		}
 
+		release_plane(&primary[count_crtcs].base);
 		release_plane(&p[count_crtcs].base);
 		release_crtc(&c[count_crtcs].base);
 		release_encoder(&c[count_crtcs].base);
@@ -1098,7 +1085,9 @@ int main(int argc, char *argv[])
 	for (i = 0; i < count_crtcs; i++) {
 		populate_crtc_props(fd, &c[i]);
 		populate_plane_props(fd, &p[i]);
+		populate_plane_props(fd, &primary[i]);
 		plane_enable(&p[i], enable);
+		plane_enable(&primary[i], true);
 		if (!handle_crtc(&my_ctx, gbm, dpy, ctx, modes[i], &c[i], &p[i]))
 			return 10;
 	}
@@ -1185,7 +1174,7 @@ int main(int argc, char *argv[])
 				p[i].dst.y1 += (cmd == 's') ? -1 : 1;
 				p[i].dst.y2 += (cmd == 's') ? -1 : 1;
 				p[i].dirty = true;
-				c[i].dirty = true;
+				c[i].primary->dirty = true;
 				if (produce_frame(dpy, ctx, &p[i]))
 					plane_commit(&my_ctx, &p[i]);
 			}
@@ -1196,7 +1185,7 @@ int main(int argc, char *argv[])
 			for (i = 0; i < count_crtcs; i++) {
 				p[i].dst.y2 += (cmd == 'S') ? -1 : 1;
 				p[i].dirty = true;
-				c[i].dirty = true;
+				c[i].primary->dirty = true;
 				if (produce_frame(dpy, ctx, &p[i]))
 					plane_commit(&my_ctx, &p[i]);
 			}
@@ -1208,7 +1197,7 @@ int main(int argc, char *argv[])
 				p[i].dst.x1 += (cmd == 'z') ? -1 : 1;
 				p[i].dst.x2 += (cmd == 'z') ? -1 : 1;
 				p[i].dirty = true;
-				c[i].dirty = true;
+				c[i].primary->dirty = true;
 				if (produce_frame(dpy, ctx, &p[i]))
 					plane_commit(&my_ctx, &p[i]);
 			}
@@ -1219,7 +1208,7 @@ int main(int argc, char *argv[])
 			for (i = 0; i < count_crtcs; i++) {
 				p[i].dst.x2 += (cmd == 'Z') ? -1 : 1;
 				p[i].dirty = true;
-				c[i].dirty = true;
+				c[i].primary->dirty = true;
 				if (produce_frame(dpy, ctx, &p[i]))
 					plane_commit(&my_ctx, &p[i]);
 			}
@@ -1261,7 +1250,7 @@ int main(int argc, char *argv[])
 		case 'd':
 			for (i = 0; i < count_crtcs; i++) {
 				p[i].dirty = true;
-				c[i].dirty = true;
+				c[i].primary->dirty = true;
 				plane_commit(&my_ctx, &p[i]);
 			}
 			commit_state(&my_ctx);
@@ -1272,7 +1261,7 @@ int main(int argc, char *argv[])
 	term_deinit();
 
 	for (i = 0; i < count_crtcs; i++) {
-		c[i].dirty = true;
+		c[i].primary->dirty = true;
 		c[i].mode = c[i].original_mode;
 		c[i].dirty_mode = true;
 
@@ -1295,7 +1284,7 @@ int main(int argc, char *argv[])
 		gl_surf_fini(dpy, &c[i].surf);
 		gl_surf_fini(dpy, &p[i].surf);
 #endif
-		surface_free(&c[i].surf.base);
+		surface_free(&c[i].primary->surf.base);
 		surface_free(&p[i].surf.base);
 	}
 
