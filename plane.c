@@ -1021,10 +1021,10 @@ int main(int argc, char *argv[])
 		init_plane(&primary[count_crtcs].base, &c[count_crtcs].base, &uctx);
 
 		if (pick_connector(&c[count_crtcs].base, argv[i + 1]) &&
-		    pick_encoder(&c[count_crtcs].base) &&
-		    pick_crtc(&c[count_crtcs].base) &&
-		    pick_plane(&p[count_crtcs].base, -1) &&
-		    pick_plane(&primary[count_crtcs].base, count_crtcs)) {
+				pick_encoder(&c[count_crtcs].base) &&
+				pick_crtc(&c[count_crtcs].base) &&
+				pick_plane(&p[count_crtcs].base, -1) &&
+				pick_plane(&primary[count_crtcs].base, c[count_crtcs].base.crtc_id)) {
 			modes[count_crtcs] = argv[i + 2];
 			c[count_crtcs].primary = &primary[count_crtcs];
 			count_crtcs++;

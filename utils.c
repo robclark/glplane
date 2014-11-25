@@ -376,13 +376,13 @@ bool pick_crtc(struct crtc *c)
 }
 
 
-static bool check_plane(int fd, drmModePlanePtr plane, int crtcid)
+static bool check_plane(int fd, drmModePlanePtr plane, int crtc_idx, int primary)
 {
 	drmModeObjectPropertiesPtr props;
 	bool ok = false;
 	uint32_t i;
 
-	if ((crtcid >= 0) && !(plane->possible_crtcs & (1 << crtcid)))
+	if ((crtc_idx >= 0) && !(plane->possible_crtcs & (1 << crtc_idx)))
 		return false;
 
 	props = drmModeObjectGetProperties(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE);
@@ -400,7 +400,7 @@ static bool check_plane(int fd, drmModePlanePtr plane, int crtcid)
 
 		if (!strcmp(prop->name, "type")) {
 			uint32_t type = props->prop_values[i];
-			if (crtcid >= 0)
+			if (primary)
 				ok = (type == DRM_PLANE_TYPE_PRIMARY);
 			else
 				ok = (type == DRM_PLANE_TYPE_OVERLAY);
@@ -412,47 +412,6 @@ static bool check_plane(int fd, drmModePlanePtr plane, int crtcid)
 	drmModeFreeObjectProperties(props);
 
 	return ok;
-}
-
-static bool reuse_old_plane(int fd, drmModePlaneResPtr plane_res,
-		struct plane *p, int crtcid)
-{
-	int i;
-
-	for (i = 0; i < plane_res->count_planes; i++) {
-		drmModePlanePtr plane;
-
-		plane = drmModeGetPlane(fd, plane_res->planes[i]);
-		if (!plane)
-			continue;
-
-		if (!check_plane(fd, plane, crtcid)) {
-			drmModeFreePlane(plane);
-			continue;
-		}
-
-		if (plane->crtc_id != p->crtc->crtc_id) {
-			drmModeFreePlane(plane);
-			continue;
-		}
-
-		if (planes_used & (1 << i)) {
-			drmModeFreePlane(plane);
-			continue;
-		}
-
-		printf("picked plane [%u] id = %u\n", i, plane->plane_id);
-
-		p->plane_id = plane->plane_id;
-		p->plane_idx = i;
-		planes_used = 1 << i;
-
-		drmModeFreePlane(plane);
-
-		return true;
-	}
-
-	return false;
 }
 
 bool pick_plane(struct plane *p, int crtcid)
@@ -467,9 +426,6 @@ bool pick_plane(struct plane *p, int crtcid)
 	if (!p->crtc->crtc_id)
 		return false;
 
-	if (reuse_old_plane(fd, plane_res, p, crtcid))
-		return true;
-
 	crtc = drmModeGetCrtc(fd, p->crtc->crtc_id);
 	if (!crtc)
 		return false;
@@ -483,12 +439,7 @@ bool pick_plane(struct plane *p, int crtcid)
 		if (!plane)
 			continue;
 
-		if (!check_plane(fd, plane, crtcid)) {
-			drmModeFreePlane(plane);
-			continue;
-		}
-
-		if (!(plane->possible_crtcs & (1 << crtc_idx))) {
+		if (!check_plane(fd, plane, crtc_idx, crtcid >= 0)) {
 			drmModeFreePlane(plane);
 			continue;
 		}
