@@ -376,12 +376,6 @@ bool pick_crtc(struct crtc *c)
 }
 
 
-enum drm_plane_type {
-	DRM_PLANE_TYPE_OVERLAY,
-	DRM_PLANE_TYPE_PRIMARY,
-	DRM_PLANE_TYPE_CURSOR,
-};
-
 static bool check_plane(int fd, drmModePlanePtr plane, int crtcid)
 {
 	drmModeObjectPropertiesPtr props;

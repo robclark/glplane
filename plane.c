@@ -91,10 +91,10 @@ struct my_crtc {
 	unsigned int frames;
 	struct timespec prev;
 
-	struct {
-		uint32_t mode;
-		uint32_t connector_ids;
-	} prop;
+//	struct {
+//		uint32_t mode;
+//		uint32_t connector_ids;
+//	} prop;
 
 	uint32_t connector_ids[8];
 
@@ -198,10 +198,10 @@ static void populate_crtc_props(int fd, struct my_crtc *c)
 
 		printf("crtc prop %s %u\n", prop->name, prop->prop_id);
 
-		if (!strcmp(prop->name, "MODE"))
-			c->prop.mode = prop->prop_id;
-		else if (!strcmp(prop->name, "CONNECTOR_IDS"))
-			c->prop.connector_ids = prop->prop_id;
+//		if (!strcmp(prop->name, "MODE"))
+//			c->prop.mode = prop->prop_id;
+//		else if (!strcmp(prop->name, "CONNECTOR_IDS"))
+//			c->prop.connector_ids = prop->prop_id;
 
 		drmModeFreeProperty(prop);
 	}
@@ -327,21 +327,10 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 
 #ifndef LEGACY_API
 	if (c->dirty_mode) {
-		drmModePropertySetAddBlob(ctx->set,
-					  c->base.crtc_id,
-					  c->prop.mode,
-					  sizeof(c->mode),
-					  &c->mode);
-
-		c->connector_ids[0] = c->base.connector_id;
-		drmModePropertySetAddBlob(ctx->set,
-					  c->base.crtc_id,
-					  c->prop.connector_ids,
-					  4,
-					  c->connector_ids);
-
-		/* don't try nonblocking modectx->set, the kernel will reject it. */
-		ctx->flags &= ~DRM_MODE_ATOMIC_NONBLOCK;
+		r = drmModeSetCrtc(ctx->fd, c->base.crtc_id, c->primary->buf->fb_id,
+				0, 0, &c->base.connector_id, 1, &c->mode);
+		if (r)
+			printf("drmModeSetCrtc() failed %d:%s\n", errno, strerror(errno));
 	}
 
 	if (p->dirty) {
