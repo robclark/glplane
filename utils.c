@@ -387,7 +387,7 @@ static bool check_plane(int fd, drmModePlanePtr plane, int crtcid)
 
 	props = drmModeObjectGetProperties(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE);
 	if (!props)
-		return;
+		return false;
 
 	for (i = 0; i < props->count_props; i++) {
 		drmModePropertyPtr prop;
@@ -398,7 +398,7 @@ static bool check_plane(int fd, drmModePlanePtr plane, int crtcid)
 
 		printf("plane prop %s %u\n", prop->name, prop->prop_id);
 
-		if (!strcmp(prop->name, "TYPE")) {
+		if (!strcmp(prop->name, "type")) {
 			uint32_t type = props->prop_values[i];
 			if (crtcid >= 0)
 				ok = (type == DRM_PLANE_TYPE_PRIMARY);
