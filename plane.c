@@ -339,10 +339,11 @@ static void plane_commit(struct my_ctx *ctx, struct my_plane *p)
 				      p->prop.fb,
 				      p->buf ? p->buf->fb_id : 0);
 
+		/* note: setting CRTC but not FB angers danvet */
 		drmModePropertySetAdd(ctx->set,
 				      p->base.plane_id,
 				      p->prop.crtc,
-				      p->base.crtc->crtc_id);
+				      p->buf ? p->base.crtc->crtc_id : 0);
 
 		drmModePropertySetAdd(ctx->set,
 				      p->base.plane_id,
